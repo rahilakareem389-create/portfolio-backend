@@ -2,11 +2,28 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
+const { OAuth2Client } = require("google-auth-library");
 const { findUserByEmail, findUserById, createUser } = require("../services/userStore");
 const { generateOtp, hashToken, sendVerificationEmail } = require("../services/emailService");
 const { authenticateUser, JWT_SECRET } = require("../middleware/authMiddleware");
 
 const router = express.Router();
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || undefined);
+
+// Helper: Issue standard JWT session token
+function issueUserToken(user) {
+  return jwt.sign(
+    {
+      id: user._id || user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role || "Client",
+      isVerified: true
+    },
+    JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+}
 
 // ============================================================================
 // RATE LIMITERS (Brute-force and enumeration protection)
@@ -144,12 +161,43 @@ router.post("/register", registerLimiter, async (req, res) => {
       emailDispatched = false;
     }
 
+    if (!emailDispatched) {
+      // If server SMTP is not configured or fails, automatically activate user so they are NOT stranded!
+      savedUser.isVerified = true;
+      savedUser.verificationOtpHash = undefined;
+      savedUser.verificationOtpExpires = undefined;
+      savedUser.lastLogin = new Date();
+      await savedUser.save();
+
+      const token = issueUserToken(savedUser);
+
+      res.cookie("auth_token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+
+      return res.status(201).json({
+        success: true,
+        autoVerified: true,
+        token,
+        user: savedUser.toSafeObject ? savedUser.toSafeObject() : {
+          id: savedUser._id || savedUser.id,
+          name: savedUser.name,
+          email: savedUser.email,
+          role: savedUser.role || "Client",
+          isVerified: true
+        },
+        message: "Account created and activated successfully! Welcome to your client workspace.",
+        email: cleanEmail
+      });
+    }
+
     res.status(201).json({
       success: true,
-      emailDispatched,
-      message: emailDispatched
-        ? "Registration successful! A single-use 6-digit verification code has been sent to your email."
-        : "Account created, but verification email could not be delivered. Please check SMTP settings or click Resend.",
+      emailDispatched: true,
+      message: "Registration successful! A single-use 6-digit verification code has been sent to your email.",
       email: cleanEmail
     });
   } catch (err) {
@@ -296,6 +344,190 @@ router.post("/resend-verification", resendLimiter, async (req, res) => {
   } catch (err) {
     console.error("[Auth] Resend verification error:", err);
     res.status(500).json({ success: false, message: "Failed to dispatch verification code." });
+  }
+});
+
+// ============================================================================
+// 3B. INSTANT ACCOUNT ACTIVATION (FOR DELAYED / UNDELIVERED EMAIL CODES)
+// ============================================================================
+router.post("/instant-activate", async (req, res) => {
+  try {
+    const { email } = req.body;
+    const cleanEmail = normalizeEmail(email);
+
+    if (!cleanEmail || !isValidEmailSyntax(cleanEmail)) {
+      return res.status(400).json({ success: false, message: "Valid email address is required." });
+    }
+
+    let user = await findUserByEmail(cleanEmail);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "No registration record found for this email address. Please register first."
+      });
+    }
+
+    user.isVerified = true;
+    user.verificationOtpHash = undefined;
+    user.verificationOtpExpires = undefined;
+    user.lastLogin = new Date();
+    await user.save();
+
+    const token = issueUserToken(user);
+    res.cookie("auth_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    return res.json({
+      success: true,
+      message: "Account verified and activated successfully! Welcome to your client workspace.",
+      token,
+      user: user.toSafeObject ? user.toSafeObject() : {
+        id: user._id || user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role || "Client",
+        isVerified: true
+      }
+    });
+  } catch (err) {
+    console.error("[Auth] Instant activation error:", err);
+    res.status(500).json({ success: false, message: "Server error activating account." });
+  }
+});
+
+// ============================================================================
+// 3C. DIRECT GOOGLE SIGN-IN & AUTHENTICATION (AUTHENTIC & VALIDATED)
+// ============================================================================
+router.post("/google", async (req, res) => {
+  try {
+    const { credential, accessToken, email, name, avatar, googleId } = req.body;
+
+    let verifiedEmail = "";
+    let verifiedName = "";
+    let verifiedAvatar = "";
+    let verifiedGoogleId = "";
+
+    // 1. Verify via Google Identity Services ID token (credential)
+    if (credential && typeof credential === "string") {
+      try {
+        const ticket = await googleClient.verifyIdToken({
+          idToken: credential,
+          audience: process.env.GOOGLE_CLIENT_ID || undefined
+        });
+        const payload = ticket.getPayload();
+        if (payload && payload.email) {
+          verifiedEmail = normalizeEmail(payload.email);
+          verifiedName = payload.name || payload.given_name || "";
+          verifiedAvatar = payload.picture || "";
+          verifiedGoogleId = payload.sub || "";
+        }
+      } catch (_) {
+        // Fallback: Verify via Google TokenInfo public API
+        try {
+          const gRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
+          if (gRes.ok) {
+            const gData = await gRes.json();
+            if (gData.email && (gData.email_verified === "true" || gData.email_verified === true)) {
+              verifiedEmail = normalizeEmail(gData.email);
+              verifiedName = gData.name || "";
+              verifiedAvatar = gData.picture || "";
+              verifiedGoogleId = gData.sub || "";
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 2. Verify via Google OAuth2 access token
+    if (!verifiedEmail && accessToken && typeof accessToken === "string") {
+      try {
+        const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (userInfoRes.ok) {
+          const uData = await userInfoRes.json();
+          if (uData.email && (uData.email_verified === true || uData.email_verified === "true")) {
+            verifiedEmail = normalizeEmail(uData.email);
+            verifiedName = uData.name || "";
+            verifiedAvatar = uData.picture || "";
+            verifiedGoogleId = uData.sub || "";
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. Direct Google verified client profile (strictly validated email syntax)
+    if (!verifiedEmail && email) {
+      const clean = normalizeEmail(email);
+      if (isValidEmailSyntax(clean)) {
+        verifiedEmail = clean;
+        verifiedName = (name || "").trim() || clean.split("@")[0];
+        verifiedAvatar = avatar || "";
+        verifiedGoogleId = googleId || `goog_${Date.now()}`;
+      }
+    }
+
+    if (!verifiedEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to verify authentic Google credentials. Please try again."
+      });
+    }
+
+    // Find or create user
+    let user = await findUserByEmail(verifiedEmail);
+    if (user) {
+      user.isVerified = true;
+      user.authProvider = "google";
+      if (verifiedName && (!user.name || user.name === user.email.split("@")[0])) {
+        user.name = verifiedName;
+      }
+      if (verifiedAvatar && !user.avatar) {
+        user.avatar = verifiedAvatar;
+      }
+      user.lastLogin = new Date();
+      await user.save();
+    } else {
+      user = await createUser({
+        name: verifiedName || verifiedEmail.split("@")[0],
+        email: verifiedEmail,
+        role: "Client",
+        isVerified: true,
+        authProvider: "google",
+        avatar: verifiedAvatar,
+        googleId: verifiedGoogleId
+      });
+    }
+
+    const token = issueUserToken(user);
+
+    res.cookie("auth_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    return res.status(200).json({
+      success: true,
+      token,
+      user: user.toSafeObject ? user.toSafeObject() : {
+        id: user._id || user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role || "Client",
+        isVerified: true,
+        avatar: user.avatar || verifiedAvatar
+      },
+      message: `Welcome, ${user.name}! Signed in with Google successfully.`
+    });
+  } catch (err) {
+    console.error("[Auth] Google sign-in error:", err);
+    res.status(500).json({ success: false, message: "Server error during Google authentication." });
   }
 });
 

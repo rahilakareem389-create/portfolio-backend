@@ -145,9 +145,12 @@ async function createUser(userData) {
     id: `usr_${Date.now()}`,
     name: userData.name,
     email: cleanEmail,
-    passwordHash: userData.passwordHash,
+    passwordHash: userData.passwordHash || "",
     role: userData.role || "Client",
     isVerified: Boolean(userData.isVerified),
+    authProvider: userData.authProvider || "local",
+    avatar: userData.avatar || "",
+    googleId: userData.googleId || "",
     verificationOtpHash: userData.verificationOtpHash,
     verificationOtpExpires: userData.verificationOtpExpires,
     createdAt: new Date().toISOString(),
@@ -160,6 +163,7 @@ async function createUser(userData) {
   return {
     ...newUser,
     comparePassword: async function (candidatePassword) {
+      if (!this.passwordHash) return false;
       return bcrypt.compare(candidatePassword, this.passwordHash);
     },
     save: async function () {
@@ -181,6 +185,8 @@ async function createUser(userData) {
         email: newUser.email,
         role: newUser.role,
         isVerified: newUser.isVerified,
+        authProvider: newUser.authProvider || "local",
+        avatar: newUser.avatar || "",
         createdAt: newUser.createdAt
       };
     }

@@ -23,7 +23,7 @@ const UserSchema = new mongoose.Schema(
     },
     passwordHash: {
       type: String,
-      required: [true, "Password is required"],
+      required: false,
       select: false // Never return password hash in regular queries
     },
     role: {
@@ -34,6 +34,19 @@ const UserSchema = new mongoose.Schema(
     isVerified: {
       type: Boolean,
       default: false
+    },
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local"
+    },
+    avatar: {
+      type: String,
+      default: ""
+    },
+    googleId: {
+      type: String,
+      default: ""
     },
     verificationOtpHash: {
       type: String,
@@ -74,6 +87,8 @@ UserSchema.methods.toSafeObject = function () {
     email: this.email,
     role: this.role,
     isVerified: this.isVerified,
+    authProvider: this.authProvider || "local",
+    avatar: this.avatar || "",
     createdAt: this.createdAt,
     lastLogin: this.lastLogin
   };

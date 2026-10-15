@@ -1,5 +1,21 @@
 [
   {
+    "id": "usr_1792065403168",
+    "name": "Rahila Client",
+    "email": "test.client.1792065402702@example.com",
+    "passwordHash": "$2b$12$t8h2fNIiCg7LmjseDPnTF.nnzzdZCd3R4vpdMdOT37RjdHgHMpHOW",
+    "role": "Client",
+    "isVerified": true,
+    "authProvider": "local",
+    "avatar": "",
+    "googleId": "",
+    "createdAt": "2026-10-15T11:56:43.168Z",
+    "updatedAt": "2026-10-15T11:56:43.168Z",
+    "lastLogin": "2026-10-15T11:56:45.928Z",
+    "verificationOtpHash": "1f0db4685bedcd31c77a0dfd3c2a24ffd31a9fba43ad6535c4fc1a11b6aefaee",
+    "verificationOtpExpires": "2026-10-15T12:11:45.550Z"
+  },
+  {
     "id": "usr_1792050130753",
     "name": "Rahila Client",
     "email": "test.client.1792050129700@example.com",
@@ -50,11 +66,11 @@
     "email": "wordpressrahila@gmail.com",
     "passwordHash": "$2b$12$cQozMXiT5YICMg9ZhPCFneyc59Ar1T3bDrMpy0b3/88OeYDDAZ9tm",
     "role": "Client",
-    "isVerified": false,
-    "verificationOtpHash": "091f5709ae332285454bdf71e55d946c63b0900a2a48b441b7b07d65fb81c1e7",
-    "verificationOtpExpires": "2026-10-15T06:49:25.079Z",
+    "isVerified": true,
     "createdAt": "2026-10-15T06:34:25.081Z",
-    "updatedAt": "2026-10-15T06:34:25.081Z"
+    "updatedAt": "2026-10-15T06:34:25.081Z",
+    "authProvider": "google",
+    "lastLogin": "2026-10-15T11:57:33.032Z"
   },
   {
     "id": "usr_1792045981016",
