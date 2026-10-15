@@ -42,7 +42,8 @@ app.use(
 );
 
 app.use(cookieParser());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // ================================================================
 // FILE STORAGE & VERCEL /TMP CONFIGURATION
@@ -642,7 +643,7 @@ app.get("/api/reviews", async (req, res) => {
 });
 
 app.post("/api/reviews", async (req, res) => {
-  const { name, email, role, rating, service, title, message } = req.body;
+  const { name, email, role, rating, service, title, message, avatar } = req.body;
 
   if (!name || !message) {
     return res.status(400).json({
@@ -667,7 +668,9 @@ app.post("/api/reviews", async (req, res) => {
     date: "Just now",
     status: "pending",
     helpfulCount: 0,
-    avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80`,
+    avatar: (avatar && typeof avatar === "string" && avatar.trim())
+      ? avatar.trim()
+      : `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80`,
     adminReply: { message: "", repliedAt: null, adminEmail: "" }
   };
 
