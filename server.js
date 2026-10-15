@@ -394,10 +394,118 @@ app.post("/api/contact", async (req, res) => {
 });
 
 // ================================================================
+// OFFICIAL GOOGLE PLACES / GMB API INTEGRATION
+// ================================================================
+app.get("/api/gmb/reviews", async (req, res) => {
+  const placeId = process.env.GOOGLE_PLACE_ID;
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+
+  if (!placeId || !apiKey) {
+    const localReviews = readJson(reviewsFilePath, []).filter((r) => r.sourceType === "gmb" && r.status === "approved");
+    return res.json({
+      success: true,
+      source: "gmb_api_ready",
+      configured: false,
+      placeId: placeId || null,
+      total: localReviews.length,
+      reviews: localReviews,
+      message: "Set GOOGLE_PLACE_ID and GOOGLE_PLACES_API_KEY in environment to stream live Google reviews directly."
+    });
+  }
+
+  try {
+    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,rating,reviews,user_ratings_total,url&key=${apiKey}`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (!response.ok || data.status !== "OK") {
+      console.warn("Google Places API warning:", data);
+      const localReviews = readJson(reviewsFilePath, []).filter((r) => r.status === "approved");
+      return res.json({
+        success: false,
+        error: data.error_message || data.status,
+        reviews: localReviews
+      });
+    }
+
+    const googleReviews = (data.result.reviews || []).map((r, idx) => ({
+      id: `gmb_${r.time || idx}`,
+      name: r.author_name,
+      authorUrl: r.author_url,
+      rating: r.rating,
+      service: "Google Verified Review",
+      title: "",
+      message: r.text,
+      date: r.relative_time_description,
+      avatar: r.profile_photo_url,
+      source: "Google My Business",
+      sourceType: "gmb",
+      gmbVerified: true,
+      time: r.time,
+      status: "approved"
+    }));
+
+    res.json({
+      success: true,
+      source: "google_places_api",
+      placeName: data.result.name,
+      overallRating: data.result.rating,
+      totalReviews: data.result.user_ratings_total,
+      googleMapsUrl: data.result.url,
+      reviews: googleReviews
+    });
+  } catch (err) {
+    console.error("Error fetching Google Places reviews:", err);
+    res.status(500).json({ success: false, message: "Error fetching Google Places API" });
+  }
+});
+
+// ================================================================
 // REVIEWS (PUBLIC & USER SUBMISSION)
 // ================================================================
 app.get("/api/reviews", async (req, res) => {
   try {
+    const placeId = process.env.GOOGLE_PLACE_ID;
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+
+    // Prioritize Live Google Places API reviews if keys configured
+    if (placeId && apiKey) {
+      try {
+        const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,rating,reviews,user_ratings_total,url&key=${apiKey}`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (response.ok && data.status === "OK") {
+          const liveGoogleReviews = (data.result.reviews || []).map((r, idx) => ({
+            id: `gmb_${r.time || idx}`,
+            name: r.author_name,
+            authorUrl: r.author_url,
+            rating: r.rating,
+            service: "Google Verified Review",
+            title: "",
+            message: r.text,
+            date: r.relative_time_description,
+            avatar: r.profile_photo_url,
+            source: "Google My Business",
+            sourceType: "gmb",
+            gmbVerified: true,
+            status: "approved"
+          }));
+
+          return res.json({
+            success: true,
+            source: "google_places_api",
+            placeName: data.result.name,
+            overallRating: data.result.rating,
+            total: liveGoogleReviews.length,
+            reviews: liveGoogleReviews
+          });
+        }
+      } catch (err) {
+        console.warn("Live Google Places fallback to DB:", err.message);
+      }
+    }
+
     let approvedReviews = [];
     if (isMongoConnected) {
       approvedReviews = await ReviewModel.find({ status: "approved" }).sort({ createdAt: -1 });
@@ -408,6 +516,7 @@ app.get("/api/reviews", async (req, res) => {
 
     res.json({
       success: true,
+      source: "database",
       total: approvedReviews.length,
       reviews: approvedReviews
     });
