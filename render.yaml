@@ -11,4 +11,4 @@ services:
       - key: NODE_ENV
         value: production
       - key: WEB3FORMS_ACCESS_KEY
-        value: 6d6e0418-bb66-48ed-81eb-aaf8f0a9486d
+        value: ad131140-827b-407f-a476-5afd66b1fa0b

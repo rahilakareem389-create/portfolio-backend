@@ -1,22 +1,47 @@
 const express = require("express");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 const fs = require("fs");
 const path = require("path");
 const mongoose = require("mongoose");
 require("dotenv").config();
 
+// Load Mongoose models
+const User = require("./models/User");
+
 const app = express();
 const PORT = process.env.PORT || 5000;
-const WEB3FORMS_ACCESS_KEY = process.env.WEB3FORMS_ACCESS_KEY || "6d6e0418-bb66-48ed-81eb-aaf8f0a9486d";
+const WEB3FORMS_ACCESS_KEY = process.env.WEB3FORMS_ACCESS_KEY || "ad131140-827b-407f-a476-5afd66b1fa0b";
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://localhost:4173",
+  "https://portfolio-backend-omega-tan.vercel.app",
+  process.env.CLIENT_URL
+].filter(Boolean);
 
 app.use(
   cors({
-    origin: "*",
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (
+        allowedOrigins.includes(origin) ||
+        origin.endsWith(".vercel.app") ||
+        origin.includes("localhost") ||
+        origin.includes("127.0.0.1")
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
+    credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"]
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
   })
 );
 
+app.use(cookieParser());
 app.use(express.json());
 
 // ================================================================
@@ -70,29 +95,61 @@ function writeJson(filePath, data) {
 }
 
 // ================================================================
-// MONGODB ATLAS INTEGRATION & SCHEMAS
+// ================================================================
+// MONGODB ATLAS INTEGRATION & SCHEMAS (SERVERLESS COMPATIBLE)
 // ================================================================
 let isMongoConnected = false;
+let cachedMongoConn = null;
+let cachedMongoPromise = null;
 
-const MONGODB_URI = process.env.MONGODB_URI;
+async function connectToMongo() {
+  if (cachedMongoConn && mongoose.connection.readyState === 1) {
+    isMongoConnected = true;
+    return cachedMongoConn;
+  }
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    return null;
+  }
+  if (!cachedMongoPromise) {
+    cachedMongoPromise = mongoose
+      .connect(uri, {
+        serverSelectionTimeoutMS: 5000,
+        maxPoolSize: 10
+      })
+      .then((mongooseInstance) => {
+        isMongoConnected = true;
+        console.log("MongoDB Atlas connected successfully.");
+        syncJsonToMongo();
+        return mongooseInstance;
+      })
+      .catch((err) => {
+        console.warn("MongoDB Atlas connection warning (falling back to JSON store):", err.message);
+        cachedMongoPromise = null;
+        isMongoConnected = false;
+        return null;
+      });
+  }
+  cachedMongoConn = await cachedMongoPromise;
+  return cachedMongoConn;
+}
 
-if (MONGODB_URI) {
-  mongoose
-    .connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000
-    })
-    .then(() => {
-      isMongoConnected = true;
-      console.log("MongoDB Atlas connected successfully.");
-      syncJsonToMongo();
-    })
-    .catch((err) => {
-      console.warn("MongoDB Atlas connection warning (falling back to JSON store):", err.message);
-      isMongoConnected = false;
-    });
+// Initial boot connection attempt
+if (process.env.MONGODB_URI) {
+  connectToMongo();
 } else {
   console.log("No MONGODB_URI provided in environment. Operating with high-speed JSON store.");
 }
+
+// Serverless middleware to ensure DB connection is active before processing API calls
+app.use(async (req, res, next) => {
+  if (process.env.MONGODB_URI && mongoose.connection.readyState !== 1) {
+    try {
+      await connectToMongo();
+    } catch (_) {}
+  }
+  next();
+});
 
 // 1. User & Login Audit Schema ("kon login huwa")
 const UserLogSchema = new mongoose.Schema(
@@ -149,7 +206,7 @@ const ReviewSchema = new mongoose.Schema(
     adminReply: {
       message: { type: String, default: "" },
       repliedAt: { type: Date },
-      adminEmail: { type: String, default: "rahilakareem389@gmail.com" }
+      adminEmail: { type: String, default: "wordpressrahila@gmail.com" }
     }
   },
   { timestamps: true }
@@ -165,7 +222,7 @@ const FaqSchema = new mongoose.Schema(
     email: { type: String, default: "" },
     date: { type: String, default: "Recently" },
     status: { type: String, default: "approved" },
-    adminEmail: { type: String, default: "rahilakareem389@gmail.com" }
+    adminEmail: { type: String, default: "wordpressrahila@gmail.com" }
   },
   { timestamps: true }
 );
@@ -261,6 +318,49 @@ async function recordUserActivity(name, email, role, activity, ip = "", userAgen
 }
 
 // ================================================================
+// WEB3FORMS AUTOMATED DISPATCHER (CONNECTED TO wordpressrahila@gmail.com)
+// ================================================================
+async function sendWeb3FormsNotification({ subject, fromName, fromEmail, details = {} }) {
+  try {
+    const formattedDetails = Object.entries(details)
+      .map(([k, v]) => `${k.toUpperCase()}: ${typeof v === "object" ? JSON.stringify(v) : v}`)
+      .join("\n");
+
+    const messageContent = details.message
+      ? `${details.message}\n\n--- Event Details ---\n${formattedDetails}`
+      : formattedDetails;
+
+    const res = await fetch("https://api.web3forms.com/submit", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify({
+        access_key: WEB3FORMS_ACCESS_KEY,
+        subject: subject || "Notification from Rahila Kareem Portfolio",
+        from_name: fromName || "Portfolio Portal",
+        email: fromEmail || "wordpressrahila@gmail.com",
+        message: messageContent,
+        ...details
+      })
+    });
+
+    const data = await res.json();
+    return Boolean(data && data.success);
+  } catch (err) {
+    console.error("Web3Forms automated dispatch error:", err.message);
+    return false;
+  }
+}
+
+// ================================================================
+// SECURE AUTHENTICATION & REGISTRATION ROUTES
+// ================================================================
+const authRoutes = require("./routes/authRoutes");
+app.use("/api/auth", authRoutes);
+
+// ================================================================
 // PUBLIC ROUTES
 // ================================================================
 
@@ -270,9 +370,10 @@ app.get("/", (req, res) => {
     message: "Rahila Kareem Portfolio Backend API is running",
     status: "online",
     verifiedGoogleAccount: "rahilakareem389@gmail.com",
+    contactAndWeb3Forms: "wordpressrahila@gmail.com",
     gmbProfile: "https://share.google/r0RApzZ7lmVtrpKnu",
     mongoDbAtlas: isMongoConnected ? "Connected" : "Standby / Ready (configured with JSON fallback)",
-    web3Forms: "Active & Connected"
+    web3Forms: "Active & Connected to wordpressrahila@gmail.com"
   });
 });
 
@@ -300,6 +401,21 @@ app.post("/api/user/auth", async (req, res) => {
   const activityText = mode === "signup" ? "New Account Created (Signed Up)" : "Logged In to Client Workspace";
 
   await recordUserActivity(name, email, role || "Client", activityText, clientIp, userAgent);
+
+  // Send Web3Forms email notification to wordpressrahila@gmail.com ("kon login huwa")
+  sendWeb3FormsNotification({
+    subject: `[User Login Alert] ${email} active on Portfolio`,
+    fromName: name || "Website Visitor",
+    fromEmail: email,
+    details: {
+      action: activityText,
+      userName: name || "Client User",
+      userEmail: email,
+      userRole: role || "Client",
+      ipAddress: clientIp || "N/A",
+      timestamp: new Date().toISOString()
+    }
+  }).catch(() => {});
 
   res.json({
     success: true,
@@ -569,6 +685,23 @@ app.post("/api/reviews", async (req, res) => {
 
   await recordUserActivity(name, email, role || "Reviewer", `Submitted ${newReview.rating}-Star Review`);
 
+  // Dispatch alert to wordpressrahila@gmail.com via Web3Forms
+  sendWeb3FormsNotification({
+    subject: `[New Client Review Submitted] ${newReview.rating} Stars by ${newReview.name}`,
+    fromName: newReview.name,
+    fromEmail: newReview.email || "wordpressrahila@gmail.com",
+    details: {
+      clientName: newReview.name,
+      clientEmail: newReview.email || "Not specified",
+      rating: `${newReview.rating} / 5 Stars`,
+      service: newReview.service,
+      reviewTitle: newReview.title || "No title",
+      message: newReview.message,
+      status: "Pending Admin Approval in Dashboard",
+      timestamp: new Date().toISOString()
+    }
+  }).catch(() => {});
+
   res.status(201).json({
     success: true,
     message: "Thank you! Your review has been submitted. It will appear publicly on the site once approved by Admin.",
@@ -635,6 +768,20 @@ app.post("/api/faqs/ask", async (req, res) => {
 
   await recordUserActivity(name || "Visitor", email, "Question Asker", `Asked FAQ: "${question.substring(0, 40)}..."`);
 
+  // Dispatch alert to wordpressrahila@gmail.com via Web3Forms ("kis n eaq kia")
+  sendWeb3FormsNotification({
+    subject: `[New FAQ Question Asked] from ${newFaq.author}`,
+    fromName: newFaq.author,
+    fromEmail: newFaq.email || "wordpressrahila@gmail.com",
+    details: {
+      author: newFaq.author,
+      authorEmail: newFaq.email || "Not specified",
+      question: newFaq.question,
+      status: "Pending Admin Answer in Dashboard",
+      timestamp: new Date().toISOString()
+    }
+  }).catch(() => {});
+
   res.status(201).json({
     success: true,
     message: "Your question has been received! Rahila Kareem will answer it shortly and publish it to the FAQ section.",
@@ -643,7 +790,7 @@ app.post("/api/faqs/ask", async (req, res) => {
 });
 
 // ================================================================
-// REAL ADMIN AUTHENTICATION (STRICTLY FOR rahilakareem389@gmail.com)
+// REAL ADMIN AUTHENTICATION (FOR wordpressrahila@gmail.com & rahilakareem389@gmail.com)
 // ================================================================
 app.post("/api/admin/login", (req, res) => {
   const { email, password } = req.body;
@@ -656,30 +803,30 @@ app.post("/api/admin/login", (req, res) => {
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  const authorizedEmails = ["rahilakareem389@gmail.com", "wordpressrahila@gmail.com"];
+  const authorizedEmails = ["wordpressrahila@gmail.com", "rahilakareem389@gmail.com"];
 
   if (!authorizedEmails.includes(cleanEmail)) {
     return res.status(403).json({
       success: false,
-      message: "Access Denied: Only Rahila Kareem's verified account (rahilakareem389@gmail.com) is authorized to access the Admin Dashboard."
+      message: "Access Denied: Only Rahila Kareem's verified account (wordpressrahila@gmail.com) is authorized to access the Admin Dashboard."
     });
   }
 
   if (password.trim() !== "rahila2026" && password.trim() !== "admin123") {
     return res.status(401).json({
       success: false,
-      message: "Invalid password for rahilakareem389@gmail.com."
+      message: `Invalid password for ${cleanEmail}.`
     });
   }
 
-  recordUserActivity("Rahila Kareem", "rahilakareem389@gmail.com", "Owner & Admin", "Logged In to Admin Dashboard");
+  recordUserActivity("Rahila Kareem", cleanEmail, "Owner & Admin", "Logged In to Admin Dashboard");
 
   res.json({
     success: true,
     message: "Admin authentication successful. Welcome, Rahila Kareem!",
     admin: {
       name: "Rahila Kareem",
-      email: "rahilakareem389@gmail.com",
+      email: cleanEmail,
       role: "Owner / Full Stack Administrator",
       verified: true
     }
@@ -874,7 +1021,7 @@ app.post("/api/admin/reviews/:id/reply", async (req, res) => {
   reviews[revIndex].adminReply = {
     message: replyMessage.trim(),
     repliedAt: new Date(),
-    adminEmail: "rahilakareem389@gmail.com"
+    adminEmail: "wordpressrahila@gmail.com"
   };
   reviews[revIndex].status = "approved"; // Automatically approve when replied
   writeJson(reviewsFilePath, reviews);
@@ -947,14 +1094,14 @@ app.patch("/api/admin/faqs/:id/answer", async (req, res) => {
 
   faqs[faqIndex].answer = answer.trim();
   faqs[faqIndex].status = "approved"; // Publish when answered
-  faqs[faqIndex].adminEmail = "rahilakareem389@gmail.com";
+  faqs[faqIndex].adminEmail = "wordpressrahila@gmail.com";
   writeJson(faqsFilePath, faqs);
 
   if (isMongoConnected) {
     try {
       await FaqModel.findOneAndUpdate(
         { id },
-        { answer: answer.trim(), status: "approved", adminEmail: "rahilakareem389@gmail.com" }
+        { answer: answer.trim(), status: "approved", adminEmail: "wordpressrahila@gmail.com" }
       );
     } catch (_) {}
   }
@@ -1004,7 +1151,7 @@ app.get("/api/admin/gmb-profile", (req, res) => {
 // ================================================================
 // SERVER STARTUP (VERCEL SAFE)
 // ================================================================
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && require.main === module) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });

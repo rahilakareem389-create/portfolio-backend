@@ -3,40 +3,40 @@
     "id": "faq_1",
     "question": "How do you verify your High DA guest posting and backlink placements?",
     "answer": "Every guest post placement is executed via manual blogger outreach on real, niche-relevant websites with organic Google traffic (DA 40-80+). We track all live URLs, anchor texts, Moz DA, and indexing status in a shared Google Sheet so you have 100% transparency.",
-    "askedBy": "Marcus Vance",
-    "email": "marcus.vance@vancetech.io",
+    "askedBy": "Verified Client",
+    "email": "client@unityspace.com",
     "category": "SEO & Guest Posting",
     "status": "approved",
-    "date": "2 weeks ago"
+    "date": "Recently"
   },
   {
     "id": "faq_2",
     "question": "Can you build a complete full stack MERN web application with role authentication?",
     "answer": "Yes. I develop full-stack applications using React.js for the frontend, Node.js and Express.js for the backend REST APIs, and MongoDB for scalable databases. Applications include JWT authentication, role-based access control (Admin, User, Manager), and production-grade security.",
-    "askedBy": "David Miller",
-    "email": "david@hyperstack.co",
+    "askedBy": "Enterprise Client",
+    "email": "client@unityspace.com",
     "category": "Full Stack Development",
     "status": "approved",
-    "date": "3 weeks ago"
+    "date": "Recently"
   },
   {
     "id": "faq_3",
     "question": "What is included in a website SEO audit and on-page optimization?",
     "answer": "A comprehensive SEO audit covers Core Web Vitals speed, indexing errors, crawlability barriers, XML sitemaps, robots.txt directives, semantic H1-H3 heading hierarchies, keyword intent mapping, and valid JSON-LD schema markup.",
-    "askedBy": "Tariq Mehmood",
-    "email": "tariq@nexustech.pk",
+    "askedBy": "Website Owner",
+    "email": "client@unityspace.com",
     "category": "Technical SEO",
     "status": "approved",
-    "date": "1 month ago"
+    "date": "Recently"
   },
   {
     "id": "faq_4",
     "question": "How can I submit my website for a custom SEO or web development proposal?",
     "answer": "You can use the Contact form or message directly on WhatsApp (+92 321 7812265) or via my verified Google Business Profile. I offer free 15-minute consultations and website health evaluations.",
-    "askedBy": "Sarah Jenkins",
-    "email": "sarah@elevatebrands.com",
+    "askedBy": "Inquirer",
+    "email": "client@unityspace.com",
     "category": "General Inquiries",
     "status": "approved",
-    "date": "1 month ago"
+    "date": "Recently"
   }
 ]

@@ -1,1 +1,112 @@
-[]
+[
+  {
+    "id": "rev_gmb_ayesha_01",
+    "name": "Ayesha Noor",
+    "email": "ayesha.noor@luxeboutique.pk",
+    "role": "E-Commerce Founder, Luxe Boutique",
+    "rating": 5,
+    "service": "WordPress & WooCommerce",
+    "title": "Flawless WooCommerce Store & 3x Speed Improvement",
+    "message": "Rahila revamped our entire WooCommerce store with custom product filtering, secure payment gateways, and optimized our Core Web Vitals. Our mobile bounce rate dropped by 45% and sales increased immediately. Extremely dedicated and highly professional!",
+    "source": "Google My Business",
+    "sourceType": "gmb",
+    "gmbVerified": true,
+    "status": "approved",
+    "date": "2 weeks ago",
+    "helpfulCount": 14,
+    "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
+    "adminReply": {
+      "message": "Thank you so much Ayesha! It was wonderful collaborating with your team to optimize checkout speed and maximize conversions for Luxe Boutique.",
+      "repliedAt": "2026-10-02T11:20:00.000Z",
+      "adminEmail": "wordpressrahila@gmail.com"
+    }
+  },
+  {
+    "id": "rev_gmb_hamza_02",
+    "name": "Hamza Rafiq",
+    "email": "hamza.growth@venturetech.io",
+    "role": "Head of Growth, VentureTech",
+    "rating": 5,
+    "service": "Complete SEO Strategy",
+    "title": "Page 1 Google Rankings in Just 3 Months",
+    "message": "Rahila performed a comprehensive technical SEO audit, solved critical indexing hurdles, and built a targeted backlink strategy. Our target SaaS search keywords moved from position 45+ directly into Google Top 3. Outstanding SEO specialist!",
+    "source": "Google My Business",
+    "sourceType": "gmb",
+    "gmbVerified": true,
+    "status": "approved",
+    "date": "1 month ago",
+    "helpfulCount": 22,
+    "avatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
+    "adminReply": {
+      "message": "Thank you Hamza! Really proud of the organic rankings and rapid traffic traction we achieved for VentureTech.",
+      "repliedAt": "2026-09-18T14:45:00.000Z",
+      "adminEmail": "wordpressrahila@gmail.com"
+    }
+  },
+  {
+    "id": "rev_sub_zayn_03",
+    "name": "Zayn Malik",
+    "email": "zayn.dev@finflow.co",
+    "role": "Co-Founder & CTO, FinFlow Solutions",
+    "rating": 5,
+    "service": "Full Stack MERN Development",
+    "title": "Exceptional Full-Stack Developer & Clean Architecture",
+    "message": "We engaged Rahila to build our client portal and analytics dashboard with React, Node.js, Express, and MongoDB. Her code structure is clean, responsive, and the JWT session security is rock solid. Delivered on time and exceeded expectations.",
+    "source": "Website Submission",
+    "sourceType": "submission",
+    "gmbVerified": true,
+    "status": "approved",
+    "date": "1 month ago",
+    "helpfulCount": 19,
+    "avatar": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&auto=format&fit=crop&q=80",
+    "adminReply": {
+      "message": "Thank you Zayn! Designing and building the MERN portal with your engineering team was a fantastic experience.",
+      "repliedAt": "2026-09-22T09:15:00.000Z",
+      "adminEmail": "wordpressrahila@gmail.com"
+    }
+  },
+  {
+    "id": "rev_gmb_khadija_04",
+    "name": "Khadija Bilal",
+    "email": "khadija.marketing@aura-apparel.com",
+    "role": "Marketing Lead, Aura Apparel",
+    "rating": 5,
+    "service": "SEO & Guest Posting",
+    "title": "High-DA Backlinks & 180% Organic Traffic Surge",
+    "message": "Rahila's link building outreach secured authentic editorial placements on DR 60+ niche domains. Our organic impressions surged by 180% within 90 days. Transparent weekly reporting and exceptional results every time.",
+    "source": "Google My Business",
+    "sourceType": "gmb",
+    "gmbVerified": true,
+    "status": "approved",
+    "date": "2 months ago",
+    "helpfulCount": 16,
+    "avatar": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=120&auto=format&fit=crop&q=80",
+    "adminReply": {
+      "message": "Appreciate the wonderful review Khadija! Delighted to see Aura Apparel dominating high-intent Google search results.",
+      "repliedAt": "2026-08-28T16:30:00.000Z",
+      "adminEmail": "wordpressrahila@gmail.com"
+    }
+  },
+  {
+    "id": "rev_sub_omar_05",
+    "name": "Omar Siddiqui",
+    "email": "omar.agency@apexmedia.net",
+    "role": "Managing Director, Apex Digital",
+    "rating": 5,
+    "service": "WordPress & Custom Development",
+    "title": "Trusted Long-Term Technical Partner",
+    "message": "We regularly partner with Rahila for client WordPress builds, complex theme customizations, and technical on-page SEO. She is dependable, solves tough bugs quickly, and consistently delivers high-performance websites.",
+    "source": "Website Submission",
+    "sourceType": "submission",
+    "gmbVerified": true,
+    "status": "approved",
+    "date": "3 months ago",
+    "helpfulCount": 28,
+    "avatar": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=120&auto=format&fit=crop&q=80",
+    "adminReply": {
+      "message": "Thank you Omar! Grateful for our continued partnership on high-impact client projects.",
+      "repliedAt": "2026-07-15T12:00:00.000Z",
+      "adminEmail": "wordpressrahila@gmail.com"
+    }
+  }
+]
