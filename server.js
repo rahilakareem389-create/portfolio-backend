@@ -17,8 +17,11 @@ app.use(
 
 app.use(express.json());
 
-// File paths
-const dataDir = path.join(__dirname, "data");
+// File paths (with Vercel serverless /tmp fallback)
+const isVercel = Boolean(process.env.VERCEL);
+const bundledDataDir = path.join(__dirname, "data");
+const dataDir = isVercel ? path.join("/tmp", "data") : bundledDataDir;
+
 const reviewsFilePath = path.join(dataDir, "reviews.json");
 const faqsFilePath = path.join(dataDir, "faqs.json");
 const usersFilePath = path.join(dataDir, "users.json");
@@ -26,6 +29,22 @@ const usersFilePath = path.join(dataDir, "users.json");
 // Helper readers and writers
 function readJson(filePath, defaultVal = []) {
   try {
+    // If running on Vercel and file hasn't been copied to /tmp yet, seed from bundled dataDir
+    if (isVercel && !fs.existsSync(filePath)) {
+      const fileName = path.basename(filePath);
+      const bundledFile = path.join(bundledDataDir, fileName);
+      if (fs.existsSync(bundledFile)) {
+        const initialContent = fs.readFileSync(bundledFile, "utf8");
+        try {
+          if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+          }
+          fs.writeFileSync(filePath, initialContent, "utf8");
+        } catch (_) {}
+        return JSON.parse(initialContent || "[]");
+      }
+    }
+
     if (!fs.existsSync(filePath)) return defaultVal;
     const data = fs.readFileSync(filePath, "utf8");
     return JSON.parse(data || "[]");
@@ -75,7 +94,7 @@ function recordUser(name, email, role, activity) {
 // Root Route
 app.get("/", (req, res) => {
   res.json({
-    message: "Rahila Kareem Portfolio Backend API is running on Render",
+    message: "Rahila Kareem Portfolio Backend API is running",
     status: "online",
     verifiedGoogleAccount: "rahilakareem389@gmail.com",
     gmbProfile: "https://share.google/r0RApzZ7lmVtrpKnu"
@@ -427,8 +446,10 @@ app.post("/api/contact", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
 
 module.exports = app;
