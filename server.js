@@ -115,7 +115,8 @@ async function connectToMongo() {
   if (!cachedMongoPromise) {
     cachedMongoPromise = mongoose
       .connect(uri, {
-        serverSelectionTimeoutMS: 5000,
+        serverSelectionTimeoutMS: 20000,
+        socketTimeoutMS: 45000,
         maxPoolSize: 10
       })
       .then((mongooseInstance) => {
