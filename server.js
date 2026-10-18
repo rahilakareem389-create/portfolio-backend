@@ -807,16 +807,17 @@ app.post("/api/admin/login", (req, res) => {
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  const authorizedEmails = ["wordpressrahila@gmail.com", "rahilakareem389@gmail.com"];
+  const authorizedEmails = ["rahilakareem389@gmail.com", "wordpressrahila@gmail.com"];
 
   if (!authorizedEmails.includes(cleanEmail)) {
     return res.status(403).json({
       success: false,
-      message: "Access Denied: Only Rahila Kareem's verified account (wordpressrahila@gmail.com) is authorized to access the Admin Dashboard."
+      message: "Access Denied: Only Rahila Kareem's verified account (rahilakareem389@gmail.com) is authorized to access the Admin Dashboard."
     });
   }
 
-  if (password.trim() !== "rahila2026" && password.trim() !== "admin123") {
+  const validPasswords = ["rahila556688", "rahila2026", "admin123"];
+  if (!validPasswords.includes(password.trim())) {
     return res.status(401).json({
       success: false,
       message: `Invalid password for ${cleanEmail}.`
