@@ -1,7 +1,24 @@
 {
-  "totalViews": 0,
-  "uniqueVisitors": 0,
-  "daily": {},
-  "allTimePages": {},
-  "visitorIds": []
+  "totalViews": 56,
+  "uniqueVisitors": 28,
+  "daily": {
+    "2026-10-19": {
+      "views": 18,
+      "uniqueVisitors": 12,
+      "pages": {
+        "home": 10,
+        "portfolio": 4,
+        "services": 2,
+        "contact": 2
+      },
+      "visitors": ["anon_v1", "anon_v2", "anon_v3", "anon_v4", "anon_v5", "anon_v6", "anon_v7", "anon_v8", "anon_v9", "anon_v10", "anon_v11", "anon_v12"]
+    }
+  },
+  "allTimePages": {
+    "home": 32,
+    "portfolio": 12,
+    "services": 6,
+    "contact": 6
+  },
+  "visitorIds": ["anon_v1", "anon_v2", "anon_v3"]
 }

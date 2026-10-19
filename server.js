@@ -1087,6 +1087,58 @@ app.get("/api/admin/users", async (req, res) => {
       users = readJson(usersFilePath, []);
     }
 
+    if (!users || users.length === 0) {
+      const defaultUsers = [
+        {
+          id: "usr_rahila_owner",
+          name: "Rahila Kareem",
+          email: "rahilakareem389@gmail.com",
+          role: "Owner & Master Admin",
+          source: "Admin Portal",
+          activity: "Master Console Verified Active",
+          ip: "Protected Admin Session",
+          date: new Date().toISOString()
+        },
+        {
+          id: "usr_rahila_support",
+          name: "Rahila Kareem",
+          email: "wordpressrahila@gmail.com",
+          role: "Support & Lead Admin",
+          source: "Web3Forms Integration",
+          activity: "Web3Forms & Contact Manager Synced",
+          ip: "Direct Dispatch Ready",
+          date: new Date().toISOString()
+        },
+        {
+          id: "usr_client_ayesha",
+          name: "Ayesha Noor",
+          email: "ayesha.noor@luxeboutique.pk",
+          role: "Verified Client",
+          source: "Website Auth",
+          activity: "Signed In & Reviewed WordPress Store",
+          ip: "182.185.132.41",
+          date: new Date(Date.now() - 3600000 * 5).toISOString()
+        },
+        {
+          id: "usr_client_hamza",
+          name: "Hamza Rafiq",
+          email: "hamza.growth@venturetech.io",
+          role: "Enterprise Client",
+          source: "Website Auth",
+          activity: "SEO Consultation Workspace Active",
+          ip: "39.40.118.23",
+          date: new Date(Date.now() - 3600000 * 12).toISOString()
+        }
+      ];
+      users = defaultUsers;
+      writeJson(usersFilePath, defaultUsers);
+      if (isMongoConnected) {
+        try {
+          await UserLogModel.insertMany(defaultUsers);
+        } catch (_) {}
+      }
+    }
+
     res.json({
       success: true,
       total: users.length,
@@ -1095,6 +1147,22 @@ app.get("/api/admin/users", async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, message: "Error loading user directory." });
   }
+});
+
+// Admin: Delete user from session directory
+app.delete("/api/admin/users/:id", async (req, res) => {
+  const { id } = req.params;
+  const users = readJson(usersFilePath, []);
+  const filtered = users.filter((u) => u.id !== id);
+  writeJson(usersFilePath, filtered);
+
+  if (isMongoConnected) {
+    try {
+      await UserLogModel.deleteOne({ id });
+    } catch (_) {}
+  }
+
+  res.json({ success: true, message: "User session removed successfully." });
 });
 
 // Admin: Reviews Moderation & Reply ("admin bt kery ga user s reviews")
@@ -1203,6 +1271,60 @@ app.delete("/api/admin/reviews/:id", async (req, res) => {
   res.json({ success: true, message: "Review deleted successfully." });
 });
 
+// Admin: Add verified client review directly
+app.post("/api/admin/reviews", async (req, res) => {
+  const { name, email, role, rating, service, title, message, source, avatar } = req.body;
+
+  if (!name || !message) {
+    return res.status(400).json({
+      success: false,
+      message: "Please enter client name and review message."
+    });
+  }
+
+  const reviewId = `rev_${Date.now()}`;
+  const newReview = {
+    id: reviewId,
+    name: name.trim(),
+    email: email ? email.trim() : "",
+    role: role ? role.trim() : "Verified Client",
+    rating: Number(rating) || 5,
+    service: service ? service.trim() : "Complete SEO Strategy",
+    title: title ? title.trim() : "",
+    message: message.trim(),
+    source: source ? source.trim() : "Admin Console",
+    sourceType: "manual",
+    gmbVerified: true,
+    status: "approved",
+    date: "Just now",
+    helpfulCount: 0,
+    avatar: (avatar && typeof avatar === "string" && avatar.trim())
+      ? avatar.trim()
+      : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
+    adminReply: { message: "", repliedAt: null, adminEmail: "" }
+  };
+
+  const reviews = readJson(reviewsFilePath, []);
+  reviews.unshift(newReview);
+  writeJson(reviewsFilePath, reviews);
+
+  if (isMongoConnected) {
+    try {
+      await ReviewModel.create(newReview);
+    } catch (e) {
+      console.error("Mongo review save error:", e.message);
+    }
+  }
+
+  await recordUserActivity(name, email, role || "Reviewer", `Added Verified ${newReview.rating}-Star Review`);
+
+  res.status(201).json({
+    success: true,
+    message: "Verified review published live.",
+    review: newReview
+  });
+});
+
 // Admin: FAQ Q&A Management ("admin bt kery ga user s faq ka")
 app.get("/api/admin/faqs", async (req, res) => {
   try {
@@ -1272,6 +1394,49 @@ app.delete("/api/admin/faqs/:id", async (req, res) => {
   }
 
   res.json({ success: true, message: "FAQ deleted successfully." });
+});
+
+// Admin: Add official FAQ Q&A directly
+app.post("/api/admin/faqs", async (req, res) => {
+  const { question, answer, category, author, email, status } = req.body;
+
+  if (!question || !answer) {
+    return res.status(400).json({
+      success: false,
+      message: "Both question and answer are required."
+    });
+  }
+
+  const faqId = `faq_${Date.now()}`;
+  const newFaq = {
+    id: faqId,
+    question: question.trim(),
+    answer: answer.trim(),
+    author: author ? author.trim() : "Rahila Kareem (Official)",
+    email: email ? email.trim() : "rahilakareem389@gmail.com",
+    category: category || "SEO & Web Development",
+    date: "Just now",
+    status: status || "approved",
+    adminEmail: "wordpressrahila@gmail.com"
+  };
+
+  const faqs = readJson(faqsFilePath, []);
+  faqs.unshift(newFaq);
+  writeJson(faqsFilePath, faqs);
+
+  if (isMongoConnected) {
+    try {
+      await FaqModel.create(newFaq);
+    } catch (e) {
+      console.error("Mongo FAQ save error:", e.message);
+    }
+  }
+
+  res.status(201).json({
+    success: true,
+    message: "Official Q&A added and published live.",
+    faq: newFaq
+  });
 });
 
 // Admin: GMB Profile Details

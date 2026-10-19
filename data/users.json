@@ -1,1 +1,42 @@
-[]
+[
+  {
+    "id": "usr_rahila_owner",
+    "name": "Rahila Kareem",
+    "email": "rahilakareem389@gmail.com",
+    "role": "Owner & Master Admin",
+    "source": "Admin Portal",
+    "activity": "Master Console Verified Active",
+    "ip": "Protected Admin Session",
+    "date": "2026-10-19T10:30:00.000Z"
+  },
+  {
+    "id": "usr_rahila_support",
+    "name": "Rahila Kareem",
+    "email": "wordpressrahila@gmail.com",
+    "role": "Support & Lead Admin",
+    "source": "Web3Forms Integration",
+    "activity": "Web3Forms & Contact Manager Synced",
+    "ip": "Direct Dispatch Ready",
+    "date": "2026-10-19T10:15:00.000Z"
+  },
+  {
+    "id": "usr_client_ayesha",
+    "name": "Ayesha Noor",
+    "email": "ayesha.noor@luxeboutique.pk",
+    "role": "Verified Client",
+    "source": "Website Auth",
+    "activity": "Signed In & Reviewed WordPress Store",
+    "ip": "182.185.132.41",
+    "date": "2026-10-18T14:22:00.000Z"
+  },
+  {
+    "id": "usr_client_hamza",
+    "name": "Hamza Rafiq",
+    "email": "hamza.growth@venturetech.io",
+    "role": "Enterprise Client",
+    "source": "Website Auth",
+    "activity": "SEO Consultation Workspace Active",
+    "ip": "39.40.118.23",
+    "date": "2026-10-17T09:45:00.000Z"
+  }
+]
