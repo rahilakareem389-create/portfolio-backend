@@ -57,6 +57,7 @@ const faqsFilePath = path.join(dataDir, "faqs.json");
 const usersFilePath = path.join(dataDir, "users.json");
 const messagesFilePath = path.join(dataDir, "messages.json");
 const gmbFilePath = path.join(dataDir, "gmb.json");
+const analyticsFilePath = path.join(dataDir, "analytics.json");
 
 function readJson(filePath, defaultVal = []) {
   try {
@@ -229,10 +230,23 @@ const FaqSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// 5. Visitor Analytics Schema (Privacy-friendly visitor counts & page views)
+const VisitorAnalyticsSchema = new mongoose.Schema(
+  {
+    date: { type: String, required: true, unique: true }, // "YYYY-MM-DD"
+    totalViews: { type: Number, default: 0 },
+    uniqueVisitors: { type: Number, default: 0 },
+    pages: { type: Object, default: {} },
+    visitorHashes: [{ type: String }]
+  },
+  { timestamps: true }
+);
+
 const UserLogModel = mongoose.models.UserLog || mongoose.model("UserLog", UserLogSchema);
 const ContactMessageModel = mongoose.models.ContactMessage || mongoose.model("ContactMessage", ContactMessageSchema);
 const ReviewModel = mongoose.models.Review || mongoose.model("Review", ReviewSchema);
 const FaqModel = mongoose.models.Faq || mongoose.model("Faq", FaqSchema);
+const VisitorAnalyticsModel = mongoose.models.VisitorAnalytics || mongoose.model("VisitorAnalytics", VisitorAnalyticsSchema);
 
 // Sync initial JSON files into MongoDB Atlas if connected and empty
 async function syncJsonToMongo() {
@@ -424,6 +438,99 @@ app.post("/api/user/auth", async (req, res) => {
     message: `Session active for ${email}`,
     user: { email, name, role: role || "Client", activity: activityText }
   });
+});
+
+// ================================================================
+// ANONYMOUS VISITOR TRACKING & PAGE VIEWS ("visitor counts & views")
+// ================================================================
+app.post("/api/track/visit", async (req, res) => {
+  try {
+    const { page = "home", visitorId } = req.body;
+    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    const rawIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "guest";
+    const cleanVisitorId = (visitorId || `anon_${rawIp.replace(/[^a-zA-Z0-9]/g, "").slice(-12)}`).substring(0, 64);
+
+    let analyticsData = readJson(analyticsFilePath, {
+      totalViews: 0,
+      uniqueVisitors: 0,
+      daily: {},
+      allTimePages: {},
+      visitorIds: []
+    });
+
+    if (!analyticsData.daily) analyticsData.daily = {};
+    if (!analyticsData.allTimePages) analyticsData.allTimePages = {};
+    if (!analyticsData.visitorIds) analyticsData.visitorIds = [];
+
+    // All time totals
+    analyticsData.totalViews = (analyticsData.totalViews || 0) + 1;
+    analyticsData.allTimePages[page] = (analyticsData.allTimePages[page] || 0) + 1;
+
+    // Daily record
+    if (!analyticsData.daily[today]) {
+      analyticsData.daily[today] = {
+        views: 0,
+        uniqueVisitors: 0,
+        pages: {},
+        visitors: []
+      };
+    }
+
+    const dayRecord = analyticsData.daily[today];
+    dayRecord.views = (dayRecord.views || 0) + 1;
+    if (!dayRecord.pages) dayRecord.pages = {};
+    dayRecord.pages[page] = (dayRecord.pages[page] || 0) + 1;
+
+    if (!dayRecord.visitors) dayRecord.visitors = [];
+    if (!dayRecord.visitors.includes(cleanVisitorId)) {
+      dayRecord.visitors.push(cleanVisitorId);
+      dayRecord.uniqueVisitors = dayRecord.visitors.length;
+    }
+
+    if (!analyticsData.visitorIds.includes(cleanVisitorId)) {
+      analyticsData.visitorIds.push(cleanVisitorId);
+      analyticsData.uniqueVisitors = analyticsData.visitorIds.length;
+    }
+
+    // Keep visitorIds array bounded to save memory
+    if (analyticsData.visitorIds.length > 5000) {
+      analyticsData.visitorIds = analyticsData.visitorIds.slice(-5000);
+    }
+
+    writeJson(analyticsFilePath, analyticsData);
+
+    // Save to Mongo if connected
+    if (isMongoConnected) {
+      try {
+        await VisitorAnalyticsModel.findOneAndUpdate(
+          { date: today },
+          {
+            $inc: { totalViews: 1, [`pages.${page}`]: 1 },
+            $addToSet: { visitorHashes: cleanVisitorId }
+          },
+          { upsert: true, new: true }
+        ).then(async (doc) => {
+          if (doc && doc.visitorHashes) {
+            doc.uniqueVisitors = doc.visitorHashes.length;
+            await doc.save();
+          }
+        });
+      } catch (e) {
+        console.warn("Mongo analytics update notice:", e.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      todayViews: dayRecord.views,
+      todayVisitors: dayRecord.uniqueVisitors,
+      totalViews: analyticsData.totalViews,
+      totalVisitors: analyticsData.uniqueVisitors
+    });
+  } catch (err) {
+    console.error("Visitor tracking error:", err);
+    res.json({ success: false });
+  }
 });
 
 // ================================================================
@@ -848,6 +955,14 @@ app.get("/api/admin/stats", async (req, res) => {
   const faqs = readJson(faqsFilePath, []);
   const users = readJson(usersFilePath, []);
   const messages = readJson(messagesFilePath, []);
+  const analyticsData = readJson(analyticsFilePath, {
+    totalViews: 0,
+    uniqueVisitors: 0,
+    daily: {}
+  });
+
+  const today = new Date().toISOString().split("T")[0];
+  const todayStats = analyticsData.daily?.[today] || { views: 0, uniqueVisitors: 0 };
 
   res.json({
     success: true,
@@ -860,9 +975,35 @@ app.get("/api/admin/stats", async (req, res) => {
       totalUsers: users.length,
       totalMessages: messages.length,
       newMessages: messages.filter((m) => m.status === "new").length,
+      totalVisitors: analyticsData.uniqueVisitors || 0,
+      totalPageViews: analyticsData.totalViews || 0,
+      todayVisitors: todayStats.uniqueVisitors || 0,
+      todayPageViews: todayStats.views || 0,
       mongoDbAtlas: isMongoConnected ? "Connected" : "JSON Fallback (Standby)",
       web3Forms: "Active & Connected"
     }
+  });
+});
+
+// Admin: Visitor Analytics Breakdown & History
+app.get("/api/admin/analytics", async (req, res) => {
+  const analyticsData = readJson(analyticsFilePath, {
+    totalViews: 0,
+    uniqueVisitors: 0,
+    daily: {},
+    allTimePages: {}
+  });
+  const today = new Date().toISOString().split("T")[0];
+  const todayStats = analyticsData.daily?.[today] || { views: 0, uniqueVisitors: 0, pages: {} };
+
+  res.json({
+    success: true,
+    totalViews: analyticsData.totalViews || 0,
+    totalVisitors: analyticsData.uniqueVisitors || 0,
+    todayViews: todayStats.views || 0,
+    todayVisitors: todayStats.uniqueVisitors || 0,
+    popularPages: analyticsData.allTimePages || {},
+    dailyHistory: analyticsData.daily || {}
   });
 });
 
