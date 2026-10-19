@@ -621,10 +621,9 @@ app.post("/api/track/visit", async (req, res) => {
 // ================================================================
 // CONTACT FORM & WEB3FORMS WITH MONGO DB ATLAS ("kis n message kia")
 // ================================================================
-app.post("/api/contact", contactLimiter, requireUserAuth, async (req, res) => {
-  const verifiedEmail = req.user?.email || sanitizeInput(req.body.email, 120).toLowerCase();
-  const name = sanitizeInput(req.body.name, 100) || req.user?.name || "Client";
-  const email = verifiedEmail;
+app.post("/api/contact", contactLimiter, async (req, res) => {
+  const name = sanitizeInput(req.body.name, 100);
+  const email = sanitizeInput(req.body.email, 120).toLowerCase();
   const phone = sanitizeInput(req.body.phone, 30);
   const plan = sanitizeInput(req.body.plan, 100);
   const message = sanitizeInput(req.body.message, 3000);
