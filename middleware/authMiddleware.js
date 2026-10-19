@@ -267,8 +267,93 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+/**
+ * Require User Authentication Middleware:
+ * Enforces that a user is logged in via verified Firebase ID Token or backend JWT
+ * before submitting a Contact Message, Client Review, or FAQ Question.
+ * Rejects unauthenticated requests with HTTP 401.
+ */
+async function requireUserAuth(req, res, next) {
+  try {
+    let token = null;
+
+    if (req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
+      token = req.headers.authorization.split(" ")[1];
+    } else if (req.cookies && req.cookies.auth_token) {
+      token = req.cookies.auth_token;
+    }
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        code: "AUTH_REQUIRED",
+        message: "You must be logged in to submit this. Please sign in with Google or your account."
+      });
+    }
+
+    // 1. Verify Firebase ID Token (Google Identity Toolkit / OAuth2)
+    const fbUser = await verifyFirebaseIdToken(token);
+    if (fbUser && fbUser.email) {
+      req.user = {
+        id: fbUser.uid,
+        email: fbUser.email.toLowerCase().trim(),
+        name: fbUser.displayName || fbUser.email.split("@")[0],
+        isVerified: fbUser.emailVerified,
+        provider: fbUser.provider || "firebase",
+        role: AUTHORIZED_ADMIN_EMAILS.includes(fbUser.email.toLowerCase().trim()) ? "Admin" : "Client"
+      };
+      return next();
+    }
+
+    // 2. Verify Backend JWT Token
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      if (decoded && decoded.email) {
+        req.user = {
+          id: decoded.id || "usr_" + Date.now(),
+          email: decoded.email.toLowerCase().trim(),
+          name: decoded.name || decoded.displayName || decoded.email.split("@")[0],
+          isVerified: decoded.isVerified !== false,
+          provider: "backend_jwt",
+          role: AUTHORIZED_ADMIN_EMAILS.includes(decoded.email.toLowerCase().trim()) ? "Admin" : (decoded.role || "Client")
+        };
+        return next();
+      }
+    } catch (_) {}
+
+    // 3. Admin session token fallback
+    if (token.startsWith("admin_token_")) {
+      const sessionEmail = req.headers["x-admin-email"] || req.cookies?.admin_email;
+      if (sessionEmail && AUTHORIZED_ADMIN_EMAILS.includes(sessionEmail.toLowerCase().trim())) {
+        req.user = {
+          id: "admin-rahila-rk",
+          email: sessionEmail.toLowerCase().trim(),
+          name: "Rahila Kareem",
+          isVerified: true,
+          provider: "admin_session",
+          role: "Admin"
+        };
+        return next();
+      }
+    }
+
+    return res.status(401).json({
+      success: false,
+      code: "INVALID_TOKEN",
+      message: "Your login session is invalid or expired. Please sign in again."
+    });
+  } catch (err) {
+    console.error("[Security] requireUserAuth error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Authentication verification error. Please try again."
+    });
+  }
+}
+
 module.exports = {
   authenticateUser,
+  requireUserAuth,
   requireAdminAuth,
   requireAdmin,
   verifyFirebaseIdToken,

@@ -10,6 +10,7 @@ require("dotenv").config();
 
 const {
   requireAdminAuth,
+  requireUserAuth,
   authenticateUser,
   PRIMARY_ADMIN_EMAIL,
   AUTHORIZED_ADMIN_EMAILS,
@@ -620,9 +621,10 @@ app.post("/api/track/visit", async (req, res) => {
 // ================================================================
 // CONTACT FORM & WEB3FORMS WITH MONGO DB ATLAS ("kis n message kia")
 // ================================================================
-app.post("/api/contact", contactLimiter, async (req, res) => {
-  const name = sanitizeInput(req.body.name, 100);
-  const email = sanitizeInput(req.body.email, 120).toLowerCase();
+app.post("/api/contact", contactLimiter, requireUserAuth, async (req, res) => {
+  const verifiedEmail = req.user?.email || sanitizeInput(req.body.email, 120).toLowerCase();
+  const name = sanitizeInput(req.body.name, 100) || req.user?.name || "Client";
+  const email = verifiedEmail;
   const phone = sanitizeInput(req.body.phone, 30);
   const plan = sanitizeInput(req.body.plan, 100);
   const message = sanitizeInput(req.body.message, 3000);
@@ -839,10 +841,11 @@ app.get("/api/reviews", async (req, res) => {
   }
 });
 
-app.post("/api/reviews", reviewLimiter, async (req, res) => {
-  const name = sanitizeInput(req.body.name, 100);
-  const email = sanitizeInput(req.body.email, 120).toLowerCase();
-  const role = sanitizeInput(req.body.role || "Verified Client", 80);
+app.post("/api/reviews", reviewLimiter, requireUserAuth, async (req, res) => {
+  const verifiedEmail = req.user?.email || sanitizeInput(req.body.email, 120).toLowerCase();
+  const name = sanitizeInput(req.body.name, 100) || req.user?.name || "Verified Client";
+  const email = verifiedEmail;
+  const role = sanitizeInput(req.body.role || (req.user?.role || "Verified Client"), 80);
   const rating = Math.min(5, Math.max(1, Number(req.body.rating) || 5));
   const service = sanitizeInput(req.body.service || "Complete SEO Strategy", 100);
   const title = sanitizeInput(req.body.title, 150);
@@ -937,10 +940,11 @@ app.get("/api/faqs", async (req, res) => {
   }
 });
 
-app.post("/api/faqs/ask", faqLimiter, async (req, res) => {
+app.post("/api/faqs/ask", faqLimiter, requireUserAuth, async (req, res) => {
   const question = sanitizeInput(req.body.question, 1000);
-  const name = sanitizeInput(req.body.name, 100);
-  const email = sanitizeInput(req.body.email, 120).toLowerCase();
+  const verifiedEmail = req.user?.email || sanitizeInput(req.body.email, 120).toLowerCase();
+  const name = sanitizeInput(req.body.name, 100) || req.user?.name || "Visitor";
+  const email = verifiedEmail;
 
   if (!question || question.length < 5) {
     return res.status(400).json({
