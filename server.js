@@ -1039,7 +1039,7 @@ app.post("/api/auth/logout", (req, res) => {
 // ================================================================
 // REAL ADMIN AUTHENTICATION (STRICTLY FOR wordpressrahila@gmail.com)
 // ================================================================
-app.post("/api/admin/login", adminLoginLimiter, (req, res) => {
+app.post("/api/admin/login", adminLoginLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -1059,8 +1059,34 @@ app.post("/api/admin/login", adminLoginLimiter, (req, res) => {
     });
   }
 
+  // 1. Check real Firebase Authentication via Google Identity Toolkit
+  let fbVerified = false;
+  const fbKey = process.env.FIREBASE_API_KEY || "AIzaSyD8zPzSBmBElxksu1kqeybgYF7iKhDTOl8";
+  if (fbKey) {
+    try {
+      const fbAuthRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${fbKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: cleanEmail,
+            password: cleanPassword,
+            returnSecureToken: true
+          })
+        }
+      );
+      if (fbAuthRes.ok) {
+        fbVerified = true;
+      }
+    } catch (_) {}
+  }
+
   const validPasswords = ["rahila556688", "rahila2026", "admin123"];
-  if (!validPasswords.includes(cleanPassword)) {
+  const envAdminPass = (process.env.ADMIN_PASSWORD || "").trim();
+  if (envAdminPass) validPasswords.push(envAdminPass);
+
+  if (!fbVerified && !validPasswords.includes(cleanPassword)) {
     return res.status(401).json({
       success: false,
       message: `Invalid password for ${cleanEmail}.`
