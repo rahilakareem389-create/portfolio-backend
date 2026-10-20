@@ -101,17 +101,32 @@ app.use(
       if (!origin) return callback(null, true);
       if (
         allowedOrigins.includes(origin) ||
-        origin.endsWith(".vercel.app")
+        origin.endsWith(".vercel.app") ||
+        origin.includes("vercel.app") ||
+        origin.includes("localhost") ||
+        origin.includes("127.0.0.1")
       ) {
         return callback(null, true);
       }
-      return callback(new Error(`CORS violation: Origin ${origin} not permitted.`));
+      return callback(null, true);
     },
     credentials: true,
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-admin-email"]
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS", "HEAD", "PUT"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "x-admin-email",
+      "x-admin-auth",
+      "Accept",
+      "Origin",
+      "Cache-Control",
+      "Pragma"
+    ]
   })
 );
+
+app.options("*", cors());
 
 app.use(cookieParser());
 app.use(express.json({ limit: "2mb" }));
@@ -901,7 +916,7 @@ app.post("/api/reviews", reviewLimiter, requireUserAuth, async (req, res) => {
     sourceType: "submission",
     gmbVerified: false,
     date: "Just now",
-    status: "pending",
+    status: "approved", // Published live onsite immediately
     helpfulCount: 0,
     avatar: avatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80`,
     adminReply: { message: "", repliedAt: null, adminEmail: "" }
@@ -989,7 +1004,7 @@ app.post("/api/faqs/ask", faqLimiter, requireUserAuth, async (req, res) => {
     author: name || "Visitor",
     email: email || "",
     date: "Just now",
-    status: "pending",
+    status: "approved", // Published live so community sees question
     adminEmail: PRIMARY_ADMIN_EMAIL
   };
 
