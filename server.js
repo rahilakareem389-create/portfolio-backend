@@ -338,19 +338,35 @@ const VisitorAnalyticsSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+const DeletedRecordSchema = new mongoose.Schema(
+  {
+    type: { type: String, required: true, index: true }, // "review" | "faq" | "user"
+    recordId: { type: String, required: true, index: true },
+    deletedAt: { type: Date, default: Date.now }
+  },
+  { timestamps: true }
+);
+
 const UserLogModel = mongoose.models.UserLog || mongoose.model("UserLog", UserLogSchema);
 const ContactMessageModel = mongoose.models.ContactMessage || mongoose.model("ContactMessage", ContactMessageSchema);
 const ReviewModel = mongoose.models.Review || mongoose.model("Review", ReviewSchema);
 const FaqModel = mongoose.models.Faq || mongoose.model("Faq", FaqSchema);
 const VisitorAnalyticsModel = mongoose.models.VisitorAnalytics || mongoose.model("VisitorAnalytics", VisitorAnalyticsSchema);
+const DeletedRecordModel = mongoose.models.DeletedRecord || mongoose.model("DeletedRecord", DeletedRecordSchema);
 
-// Sync JSON files into MongoDB Atlas bidirectionally
+// Sync JSON files into MongoDB Atlas bidirectionally (Strict: Excludes any deleted records)
 async function syncJsonToMongo() {
   if (!isMongoConnected) return;
   try {
+    let deletedReviewIds = new Set();
+    try {
+      const deletedRevs = await DeletedRecordModel.find({ type: "review" }).lean();
+      deletedReviewIds = new Set(deletedRevs.map((d) => d.recordId));
+    } catch (_) {}
+
     const initialReviews = readJson(reviewsFilePath, []);
     for (const rev of initialReviews) {
-      if (rev && rev.id) {
+      if (rev && rev.id && !deletedReviewIds.has(rev.id)) {
         await ReviewModel.findOneAndUpdate({ id: rev.id }, { $set: rev }, { upsert: true }).catch(() => {});
       }
     }
@@ -878,13 +894,30 @@ app.get("/api/reviews", async (req, res) => {
       }
     }
 
+    let deletedReviewIds = new Set();
+    if (isMongoConnected) {
+      try {
+        const deletedRecords = await DeletedRecordModel.find({ type: "review" }).lean();
+        deletedReviewIds = new Set(deletedRecords.map((d) => d.recordId));
+      } catch (_) {}
+    }
+
     let approvedReviews = [];
     if (isMongoConnected) {
-      approvedReviews = await ReviewModel.find({ status: "approved" }).sort({ createdAt: -1 });
+      approvedReviews = await ReviewModel.find({ status: "approved" }).sort({ createdAt: -1 }).lean();
     } else {
       const all = readJson(reviewsFilePath, []);
       approvedReviews = all.filter((r) => r.status === "approved");
     }
+
+    // Strict On-Site Review Policy: Exclude deleted reviews and spam
+    const FAKE_REVIEWER_REGEX = /^(fake|test|dummy)/i;
+    approvedReviews = approvedReviews.filter((r) => {
+      if (!r || !r.id) return false;
+      if (deletedReviewIds.has(r.id) || deletedReviewIds.has(String(r._id))) return false;
+      if (FAKE_REVIEWER_REGEX.test(r.name || "")) return false;
+      return true;
+    });
 
     res.json({
       success: true,
@@ -1534,6 +1567,14 @@ app.delete("/api/admin/users/:id", async (req, res) => {
 // Admin: Reviews Moderation & Reply ("admin bt kery ga user s reviews")
 app.get("/api/admin/reviews", async (req, res) => {
   try {
+    let deletedReviewIds = new Set();
+    if (isMongoConnected) {
+      try {
+        const deletedRecords = await DeletedRecordModel.find({ type: "review" }).lean();
+        deletedReviewIds = new Set(deletedRecords.map((d) => d.recordId));
+      } catch (_) {}
+    }
+
     let mongoReviews = [];
     if (isMongoConnected) {
       try {
@@ -1542,8 +1583,14 @@ app.get("/api/admin/reviews", async (req, res) => {
     }
     const localReviews = readJson(reviewsFilePath, []);
     const revMap = new Map();
-    localReviews.forEach((r) => { if (r && r.id) revMap.set(r.id, r); });
-    mongoReviews.forEach((r) => { if (r && r.id) revMap.set(r.id, r); });
+    localReviews.forEach((r) => {
+      if (r && r.id && !deletedReviewIds.has(r.id)) revMap.set(r.id, r);
+    });
+    mongoReviews.forEach((r) => {
+      if (r && r.id && !deletedReviewIds.has(r.id) && !deletedReviewIds.has(String(r._id))) {
+        revMap.set(r.id, r);
+      }
+    });
 
     let reviews = Array.from(revMap.values());
     reviews.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
@@ -1687,16 +1734,31 @@ app.post("/api/admin/reviews/:id/reply", async (req, res) => {
 app.delete("/api/admin/reviews/:id", async (req, res) => {
   const { id } = req.params;
   const reviews = readJson(reviewsFilePath, []);
-  const filtered = reviews.filter((r) => r.id !== id);
+  const filtered = reviews.filter((r) => r.id !== id && String(r._id) !== id);
   writeJson(reviewsFilePath, filtered);
 
   if (isMongoConnected) {
     try {
-      await ReviewModel.deleteOne({ id });
-    } catch (_) {}
+      // Record in tombstone so it can NEVER be resurrected
+      await DeletedRecordModel.findOneAndUpdate(
+        { type: "review", recordId: id },
+        { $set: { type: "review", recordId: id, deletedAt: new Date() } },
+        { upsert: true }
+      );
+
+      // Delete from MongoDB by ID and by _id
+      await ReviewModel.deleteMany({
+        $or: [
+          { id: id },
+          ...(mongoose.isValidObjectId(id) ? [{ _id: id }] : [])
+        ]
+      });
+    } catch (err) {
+      console.error("Error permanently deleting review in Mongo:", err.message);
+    }
   }
 
-  res.json({ success: true, message: "Review deleted successfully." });
+  res.json({ success: true, message: "Review permanently deleted successfully." });
 });
 
 // Admin: Add verified client review directly
