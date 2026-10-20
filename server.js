@@ -917,7 +917,7 @@ app.post("/api/reviews", reviewLimiter, requireUserAuth, async (req, res) => {
     sourceType: "submission",
     gmbVerified: false,
     date: "Just now",
-    status: "approved", // Published live onsite immediately
+    status: "pending", // Moderated: Must be approved by Admin in Dashboard before appearing publicly
     helpfulCount: 0,
     avatar: avatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80`,
     adminReply: { message: "", repliedAt: null, adminEmail: "" }
@@ -1005,7 +1005,7 @@ app.post("/api/faqs/ask", faqLimiter, requireUserAuth, async (req, res) => {
     author: name || "Visitor",
     email: email || "",
     date: "Just now",
-    status: "approved", // Published live so community sees question
+    status: "pending", // Moderated: Must be answered/approved by Admin in Dashboard before appearing publicly
     adminEmail: PRIMARY_ADMIN_EMAIL
   };
 
