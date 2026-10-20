@@ -1,5 +1,25 @@
 [
   {
+    "id": "usr_1792481208611",
+    "name": "Zeeshan Ali",
+    "email": "zeeshan@client.com",
+    "role": "Client",
+    "source": "Website Engagement",
+    "activity": "Logged In to Client Workspace",
+    "ip": "::1",
+    "date": "2026-10-20T07:26:48.611Z"
+  },
+  {
+    "id": "usr_1792481208598",
+    "name": "Sara Khan",
+    "email": "sara@test.com",
+    "role": "Question Asker",
+    "source": "Website Engagement",
+    "activity": "Asked FAQ: \"How long does SEO take to show ranking r...\"",
+    "ip": "Client Workspace",
+    "date": "2026-10-20T07:26:48.598Z"
+  },
+  {
     "id": "usr_rahila_owner",
     "name": "Rahila Kareem",
     "email": "rahilakareem389@gmail.com",

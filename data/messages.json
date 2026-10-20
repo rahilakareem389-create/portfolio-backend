@@ -1,1 +1,28 @@
-[]
+[
+  {
+    "id": "msg_client_ayesha",
+    "name": "Ayesha Noor",
+    "email": "ayesha.noor@luxeboutique.pk",
+    "phone": "+92 300 1234567",
+    "plan": "WordPress & E-Commerce Store ($220)",
+    "subject": "Inquiry: WordPress & E-Commerce Store",
+    "message": "Hi Rahila, I am looking to redesign our WooCommerce store for Luxe Boutique with fast checkout and technical SEO optimization. Looking forward to discussing this project.",
+    "status": "new",
+    "adminNotes": "",
+    "web3FormsStatus": "delivered",
+    "date": "2026-10-19T14:20:00.000Z"
+  },
+  {
+    "id": "msg_client_hamza",
+    "name": "Hamza Rafiq",
+    "email": "hamza.growth@venturetech.io",
+    "phone": "+92 321 9876543",
+    "plan": "Enterprise Backlinks & Monthly SEO ($350)",
+    "subject": "Inquiry: Enterprise Backlinks",
+    "message": "Looking for high authority guest posting and monthly backlink building for our SaaS application. Please share case studies and proposal.",
+    "status": "replied",
+    "adminNotes": "Sent proposal via WhatsApp & email.",
+    "web3FormsStatus": "delivered",
+    "date": "2026-10-18T11:15:00.000Z"
+  }
+]

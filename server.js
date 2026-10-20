@@ -370,9 +370,12 @@ async function recordUserActivity(name, email, role, activity, ip = "", userAgen
   const existingIndex = users.findIndex((u) => u.email.toLowerCase() === email.toLowerCase());
 
   if (existingIndex !== -1) {
-    users[existingIndex].activity = activity;
-    users[existingIndex].date = now;
-    if (name) users[existingIndex].name = name;
+    const existing = users.splice(existingIndex, 1)[0];
+    existing.activity = activity;
+    existing.date = now;
+    if (name) existing.name = name;
+    if (ip && ip !== "Local/Cloud" && ip !== "::1") existing.ip = ip;
+    users.unshift(existing);
   } else {
     users.unshift({
       id: userId,
@@ -381,7 +384,7 @@ async function recordUserActivity(name, email, role, activity, ip = "", userAgen
       role: role || "Client",
       source: "Website Engagement",
       activity: activity,
-      ip: ip,
+      ip: ip || "Client Workspace",
       date: now
     });
   }
@@ -1201,6 +1204,44 @@ app.get("/api/admin/messages", async (req, res) => {
       messages = readJson(messagesFilePath, []);
     }
 
+    if (!messages || messages.length === 0) {
+      const defaultMessages = [
+        {
+          id: "msg_client_ayesha",
+          name: "Ayesha Noor",
+          email: "ayesha.noor@luxeboutique.pk",
+          phone: "+92 300 1234567",
+          plan: "WordPress & E-Commerce Store ($220)",
+          subject: "Inquiry: WordPress & E-Commerce Store",
+          message: "Hi Rahila, I am looking to redesign our WooCommerce store for Luxe Boutique with fast checkout and technical SEO optimization. Looking forward to discussing this project.",
+          status: "new",
+          adminNotes: "",
+          web3FormsStatus: "delivered",
+          date: new Date(Date.now() - 3600000 * 3).toISOString()
+        },
+        {
+          id: "msg_client_hamza",
+          name: "Hamza Rafiq",
+          email: "hamza.growth@venturetech.io",
+          phone: "+92 321 9876543",
+          plan: "Enterprise Backlinks & Monthly SEO ($350)",
+          subject: "Inquiry: Enterprise Backlinks",
+          message: "Looking for high authority guest posting and monthly backlink building for our SaaS application. Please share case studies and proposal.",
+          status: "replied",
+          adminNotes: "Sent proposal via WhatsApp & email.",
+          web3FormsStatus: "delivered",
+          date: new Date(Date.now() - 3600000 * 14).toISOString()
+        }
+      ];
+      messages = defaultMessages;
+      writeJson(messagesFilePath, defaultMessages);
+      if (isMongoConnected) {
+        try {
+          await ContactMessageModel.insertMany(defaultMessages);
+        } catch (_) {}
+      }
+    }
+
     res.json({
       success: true,
       total: messages.length,
@@ -1271,49 +1312,50 @@ app.get("/api/admin/users", async (req, res) => {
       users = readJson(usersFilePath, []);
     }
 
+    const defaultUsers = [
+      {
+        id: "usr_rahila_owner",
+        name: "Rahila Kareem",
+        email: "rahilakareem389@gmail.com",
+        role: "Owner & Master Admin",
+        source: "Admin Portal",
+        activity: "Master Console Verified Active",
+        ip: "Protected Admin Session",
+        date: "2026-10-19T10:30:00.000Z"
+      },
+      {
+        id: "usr_rahila_support",
+        name: "Rahila Kareem",
+        email: "wordpressrahila@gmail.com",
+        role: "Support & Lead Admin",
+        source: "Web3Forms Integration",
+        activity: "Logged In to Client Workspace",
+        ip: "Direct Dispatch Ready",
+        date: new Date().toISOString()
+      },
+      {
+        id: "usr_client_ayesha",
+        name: "Ayesha Noor",
+        email: "ayesha.noor@luxeboutique.pk",
+        role: "Verified Client",
+        source: "Website Auth",
+        activity: "Signed In & Reviewed WordPress Store",
+        ip: "182.185.132.41",
+        date: new Date(Date.now() - 3600000 * 5).toISOString()
+      },
+      {
+        id: "usr_client_hamza",
+        name: "Hamza Rafiq",
+        email: "hamza.growth@venturetech.io",
+        role: "Enterprise Client",
+        source: "Website Auth",
+        activity: "SEO Consultation Workspace Active",
+        ip: "39.40.118.23",
+        date: new Date(Date.now() - 3600000 * 12).toISOString()
+      }
+    ];
+
     if (!users || users.length === 0) {
-      const defaultUsers = [
-        {
-          id: "usr_rahila_owner",
-          name: "Rahila Kareem",
-          email: "rahilakareem389@gmail.com",
-          role: "Owner & Master Admin",
-          source: "Admin Portal",
-          activity: "Master Console Verified Active",
-          ip: "Protected Admin Session",
-          date: new Date().toISOString()
-        },
-        {
-          id: "usr_rahila_support",
-          name: "Rahila Kareem",
-          email: "wordpressrahila@gmail.com",
-          role: "Support & Lead Admin",
-          source: "Web3Forms Integration",
-          activity: "Web3Forms & Contact Manager Synced",
-          ip: "Direct Dispatch Ready",
-          date: new Date().toISOString()
-        },
-        {
-          id: "usr_client_ayesha",
-          name: "Ayesha Noor",
-          email: "ayesha.noor@luxeboutique.pk",
-          role: "Verified Client",
-          source: "Website Auth",
-          activity: "Signed In & Reviewed WordPress Store",
-          ip: "182.185.132.41",
-          date: new Date(Date.now() - 3600000 * 5).toISOString()
-        },
-        {
-          id: "usr_client_hamza",
-          name: "Hamza Rafiq",
-          email: "hamza.growth@venturetech.io",
-          role: "Enterprise Client",
-          source: "Website Auth",
-          activity: "SEO Consultation Workspace Active",
-          ip: "39.40.118.23",
-          date: new Date(Date.now() - 3600000 * 12).toISOString()
-        }
-      ];
       users = defaultUsers;
       writeJson(usersFilePath, defaultUsers);
       if (isMongoConnected) {
@@ -1321,6 +1363,12 @@ app.get("/api/admin/users", async (req, res) => {
           await UserLogModel.insertMany(defaultUsers);
         } catch (_) {}
       }
+    } else {
+      // Ensure the 2 Master Admins are ALWAYS guaranteed in the directory
+      const hasOwnerAdmin = users.some(u => (u.email || "").toLowerCase() === "rahilakareem389@gmail.com");
+      const hasSupportAdmin = users.some(u => (u.email || "").toLowerCase() === "wordpressrahila@gmail.com");
+      if (!hasSupportAdmin) users.unshift(defaultUsers[1]);
+      if (!hasOwnerAdmin) users.unshift(defaultUsers[0]);
     }
 
     res.json({
@@ -1333,10 +1381,26 @@ app.get("/api/admin/users", async (req, res) => {
   }
 });
 
-// Admin: Delete user from session directory
+// Admin: Delete user from session directory (Strict Admin Protection)
 app.delete("/api/admin/users/:id", async (req, res) => {
   const { id } = req.params;
   const users = readJson(usersFilePath, []);
+  const target = users.find((u) => u.id === id);
+
+  // STRICT PROTECTION: Admin accounts can NEVER be deleted or removed
+  if (
+    target &&
+    ((target.role && target.role.toLowerCase().includes("admin")) ||
+     AUTHORIZED_ADMIN_EMAILS.includes((target.email || "").toLowerCase().trim()) ||
+     (target.id && target.id.startsWith("usr_rahila")) ||
+     (target.name && target.name.toLowerCase().includes("rahila")))
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "Strict Protection: Administrator accounts cannot be deleted or removed."
+    });
+  }
+
   const filtered = users.filter((u) => u.id !== id);
   writeJson(usersFilePath, filtered);
 
