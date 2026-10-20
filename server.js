@@ -86,12 +86,14 @@ const userAuthLimiter = rateLimit({
 // CORS ORIGIN PROTECTION FOR REAL FRONTEND
 // ================================================================
 const allowedOrigins = [
+  "https://portfolio-frontend-kappa-drab.vercel.app",
+  "https://portfolio-frontend-omega-tan.vercel.app",
+  "https://portfolio-backend-omega-tan.vercel.app",
   "http://localhost:5173",
   "http://localhost:3000",
   "http://localhost:4173",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:3000",
-  "https://portfolio-backend-omega-tan.vercel.app",
   process.env.CLIENT_URL
 ].filter(Boolean);
 
@@ -125,8 +127,6 @@ app.use(
     ]
   })
 );
-
-app.options("*", cors());
 
 app.use(cookieParser());
 app.use(express.json({ limit: "2mb" }));
