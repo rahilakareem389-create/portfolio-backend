@@ -653,24 +653,63 @@ router.get("/me", authenticateUser, async (req, res) => {
 router.get("/dashboard", authenticateUser, async (req, res) => {
   try {
     const mongoose = require("mongoose");
+    const fs = require("fs");
+    const path = require("path");
+
     const ContactMessageModel = mongoose.models.ContactMessage;
     const ReviewModel = mongoose.models.Review;
+    const FaqModel = mongoose.models.Faq;
 
-    const userEmail = req.user.email?.toLowerCase();
+    const userEmail = (req.user.email || "").toLowerCase().trim();
 
-    // Query user's private inquiries
+    // 1. Query user's private inquiries with replies
     let inquiries = [];
     if (ContactMessageModel && userEmail && mongoose.connection?.readyState === 1) {
       try {
-        inquiries = await ContactMessageModel.find({ email: userEmail }).sort({ createdAt: -1 });
+        inquiries = await ContactMessageModel.find({ email: userEmail }).sort({ createdAt: -1, date: -1 }).lean();
+      } catch (_) {}
+    }
+    if ((!inquiries || inquiries.length === 0) && userEmail) {
+      try {
+        const messagesPath = path.join(__dirname, "../data/messages.json");
+        if (fs.existsSync(messagesPath)) {
+          const allMsgs = JSON.parse(fs.readFileSync(messagesPath, "utf8") || "[]");
+          inquiries = allMsgs.filter((m) => (m.email || "").toLowerCase().trim() === userEmail);
+        }
       } catch (_) {}
     }
 
-    // Query user's private reviews
+    // 2. Query user's reviews with admin reply
     let userReviews = [];
     if (ReviewModel && userEmail && mongoose.connection?.readyState === 1) {
       try {
-        userReviews = await ReviewModel.find({ email: userEmail }).sort({ createdAt: -1 });
+        userReviews = await ReviewModel.find({ email: userEmail }).sort({ createdAt: -1, date: -1 }).lean();
+      } catch (_) {}
+    }
+    if ((!userReviews || userReviews.length === 0) && userEmail) {
+      try {
+        const reviewsPath = path.join(__dirname, "../data/reviews.json");
+        if (fs.existsSync(reviewsPath)) {
+          const allRevs = JSON.parse(fs.readFileSync(reviewsPath, "utf8") || "[]");
+          userReviews = allRevs.filter((r) => (r.email || "").toLowerCase().trim() === userEmail);
+        }
+      } catch (_) {}
+    }
+
+    // 3. Query user's asked FAQs with admin answer
+    let userFaqs = [];
+    if (FaqModel && userEmail && mongoose.connection?.readyState === 1) {
+      try {
+        userFaqs = await FaqModel.find({ email: userEmail }).sort({ createdAt: -1, date: -1 }).lean();
+      } catch (_) {}
+    }
+    if ((!userFaqs || userFaqs.length === 0) && userEmail) {
+      try {
+        const faqsPath = path.join(__dirname, "../data/faqs.json");
+        if (fs.existsSync(faqsPath)) {
+          const allFaqs = JSON.parse(fs.readFileSync(faqsPath, "utf8") || "[]");
+          userFaqs = allFaqs.filter((f) => (f.email || "").toLowerCase().trim() === userEmail);
+        }
       } catch (_) {}
     }
 
@@ -679,6 +718,7 @@ router.get("/dashboard", authenticateUser, async (req, res) => {
       user: req.user.toSafeObject ? req.user.toSafeObject() : req.user,
       inquiries,
       reviews: userReviews,
+      faqs: userFaqs,
       securityStatus: {
         emailVerified: true,
         accountType: req.user.role || "Client",
