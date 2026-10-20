@@ -19,6 +19,7 @@ const {
 
 // Load Mongoose models
 const User = require("./models/User");
+const { sendClientNotificationEmail } = require("./services/emailService");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -1300,32 +1301,70 @@ app.patch("/api/admin/messages/:id/reply", async (req, res) => {
   const { id } = req.params;
   const { adminNotes, status } = req.body;
 
-  const messages = readJson(messagesFilePath, []);
-  const msgIndex = messages.findIndex((m) => m.id === id);
+  let updatedMessage = null;
 
-  if (msgIndex === -1) {
-    return res.status(404).json({ success: false, message: "Message not found." });
-  }
-
-  messages[msgIndex].adminNotes = adminNotes || messages[msgIndex].adminNotes;
-  messages[msgIndex].status = status || "replied";
-  writeJson(messagesFilePath, messages);
-
+  // 1. Check MongoDB Atlas first
   if (isMongoConnected) {
     try {
-      await ContactMessageModel.findOneAndUpdate(
+      const updateFields = { status: status || "replied" };
+      if (adminNotes !== undefined) updateFields.adminNotes = adminNotes;
+      updatedMessage = await ContactMessageModel.findOneAndUpdate(
         { id },
-        { adminNotes: messages[msgIndex].adminNotes, status: messages[msgIndex].status }
-      );
+        { $set: updateFields },
+        { new: true }
+      ).lean();
     } catch (e) {
       console.error("Mongo message reply error:", e.message);
     }
   }
 
+  // 2. Also update local JSON storage
+  const messages = readJson(messagesFilePath, []);
+  const msgIndex = messages.findIndex((m) => m.id === id);
+  if (msgIndex !== -1) {
+    if (adminNotes !== undefined) messages[msgIndex].adminNotes = adminNotes;
+    messages[msgIndex].status = status || "replied";
+    writeJson(messagesFilePath, messages);
+    if (!updatedMessage) updatedMessage = messages[msgIndex];
+  } else if (updatedMessage) {
+    messages.unshift(updatedMessage);
+    writeJson(messagesFilePath, messages);
+  }
+
+  if (!updatedMessage) {
+    return res.status(404).json({ success: false, message: "Message not found." });
+  }
+
+  // 3. Automated Email Notification to the inquirer/user
+  if (adminNotes && updatedMessage.email) {
+    sendClientNotificationEmail({
+      toEmail: updatedMessage.email,
+      recipientName: updatedMessage.name,
+      type: "Project Inquiry Response",
+      subject: `Response to your project inquiry from Rahila Kareem`,
+      originalContent: updatedMessage.message,
+      replyContent: adminNotes
+    }).catch(() => {});
+
+    sendWeb3FormsNotification({
+      subject: `[Admin Replied to Inquiry] ${updatedMessage.name} (${updatedMessage.email})`,
+      fromName: "Admin Console",
+      fromEmail: "wordpressrahila@gmail.com",
+      details: {
+        clientName: updatedMessage.name,
+        clientEmail: updatedMessage.email,
+        plan: updatedMessage.plan || "General",
+        adminNotes: adminNotes,
+        status: updatedMessage.status,
+        timestamp: new Date().toISOString()
+      }
+    }).catch(() => {});
+  }
+
   res.json({
     success: true,
-    message: "Admin notes updated successfully.",
-    messageItem: messages[msgIndex]
+    message: "Admin notes updated and client notification dispatched.",
+    messageItem: updatedMessage
   });
 });
 
@@ -1502,26 +1541,41 @@ app.patch("/api/admin/reviews/:id/status", async (req, res) => {
     return res.status(400).json({ success: false, message: "Invalid status value." });
   }
 
-  const reviews = readJson(reviewsFilePath, []);
-  const revIndex = reviews.findIndex((r) => r.id === id);
+  let updatedReview = null;
 
-  if (revIndex === -1) {
-    return res.status(404).json({ success: false, message: "Review not found." });
-  }
-
-  reviews[revIndex].status = status;
-  writeJson(reviewsFilePath, reviews);
-
+  // 1. Check MongoDB Atlas first
   if (isMongoConnected) {
     try {
-      await ReviewModel.findOneAndUpdate({ id }, { status });
-    } catch (_) {}
+      updatedReview = await ReviewModel.findOneAndUpdate(
+        { id },
+        { $set: { status } },
+        { new: true }
+      ).lean();
+    } catch (e) {
+      console.error("Mongo review status update error:", e.message);
+    }
+  }
+
+  // 2. Also update local JSON storage
+  const reviews = readJson(reviewsFilePath, []);
+  const revIndex = reviews.findIndex((r) => r.id === id);
+  if (revIndex !== -1) {
+    reviews[revIndex].status = status;
+    writeJson(reviewsFilePath, reviews);
+    if (!updatedReview) updatedReview = reviews[revIndex];
+  } else if (updatedReview) {
+    reviews.unshift(updatedReview);
+    writeJson(reviewsFilePath, reviews);
+  }
+
+  if (!updatedReview) {
+    return res.status(404).json({ success: false, message: "Review not found." });
   }
 
   res.json({
     success: true,
-    message: `Review ${status === "approved" ? "approved & published live" : status}.`,
-    review: reviews[revIndex]
+    message: `Review ${status === "approved" ? "approved & published live on website" : status}.`,
+    review: updatedReview
   });
 });
 
@@ -1534,34 +1588,74 @@ app.post("/api/admin/reviews/:id/reply", async (req, res) => {
     return res.status(400).json({ success: false, message: "Reply message cannot be empty." });
   }
 
-  const reviews = readJson(reviewsFilePath, []);
-  const revIndex = reviews.findIndex((r) => r.id === id);
-
-  if (revIndex === -1) {
-    return res.status(404).json({ success: false, message: "Review not found." });
-  }
-
-  reviews[revIndex].adminReply = {
+  const replyData = {
     message: replyMessage.trim(),
     repliedAt: new Date(),
     adminEmail: "wordpressrahila@gmail.com"
   };
-  reviews[revIndex].status = "approved"; // Automatically approve when replied
-  writeJson(reviewsFilePath, reviews);
 
+  let updatedReview = null;
+
+  // 1. Check MongoDB first
   if (isMongoConnected) {
     try {
-      await ReviewModel.findOneAndUpdate(
+      updatedReview = await ReviewModel.findOneAndUpdate(
         { id },
-        { adminReply: reviews[revIndex].adminReply, status: "approved" }
-      );
-    } catch (_) {}
+        { $set: { adminReply: replyData, status: "approved" } },
+        { new: true }
+      ).lean();
+    } catch (e) {
+      console.error("Mongo review reply error:", e.message);
+    }
+  }
+
+  // 2. Also update local JSON
+  const reviews = readJson(reviewsFilePath, []);
+  const revIndex = reviews.findIndex((r) => r.id === id);
+  if (revIndex !== -1) {
+    reviews[revIndex].adminReply = replyData;
+    reviews[revIndex].status = "approved"; // Automatically approve when replied
+    writeJson(reviewsFilePath, reviews);
+    if (!updatedReview) updatedReview = reviews[revIndex];
+  } else if (updatedReview) {
+    reviews.unshift(updatedReview);
+    writeJson(reviewsFilePath, reviews);
+  }
+
+  if (!updatedReview) {
+    return res.status(404).json({ success: false, message: "Review not found." });
+  }
+
+  // 3. Send email notification to the user who submitted the review
+  if (updatedReview.email) {
+    sendClientNotificationEmail({
+      toEmail: updatedReview.email,
+      recipientName: updatedReview.name,
+      type: "Review Response",
+      subject: `Rahila Kareem responded to your review`,
+      originalContent: updatedReview.message,
+      replyContent: replyMessage.trim()
+    }).catch(() => {});
+
+    sendWeb3FormsNotification({
+      subject: `[Admin Replied to Review] by ${updatedReview.name}`,
+      fromName: "Admin Console",
+      fromEmail: "wordpressrahila@gmail.com",
+      details: {
+        reviewerName: updatedReview.name,
+        reviewerEmail: updatedReview.email,
+        rating: updatedReview.rating,
+        replyMessage: replyMessage.trim(),
+        publishedLive: "Yes (Approved)",
+        timestamp: new Date().toISOString()
+      }
+    }).catch(() => {});
   }
 
   res.json({
     success: true,
-    message: "Admin reply published to review successfully.",
-    review: reviews[revIndex]
+    message: "Admin reply published live to review and user notification dispatched.",
+    review: updatedReview
   });
 });
 
@@ -1669,31 +1763,70 @@ app.patch("/api/admin/faqs/:id/answer", async (req, res) => {
     return res.status(400).json({ success: false, message: "Answer cannot be empty." });
   }
 
+  let updatedFaq = null;
+
+  // 1. Check MongoDB first
+  if (isMongoConnected) {
+    try {
+      updatedFaq = await FaqModel.findOneAndUpdate(
+        { id },
+        { $set: { answer: answer.trim(), status: "approved", adminEmail: "wordpressrahila@gmail.com" } },
+        { new: true }
+      ).lean();
+    } catch (e) {
+      console.error("Mongo faq answer error:", e.message);
+    }
+  }
+
+  // 2. Also update local JSON
   const faqs = readJson(faqsFilePath, []);
   const faqIndex = faqs.findIndex((f) => f.id === id);
+  if (faqIndex !== -1) {
+    faqs[faqIndex].answer = answer.trim();
+    faqs[faqIndex].status = "approved"; // Publish when answered
+    faqs[faqIndex].adminEmail = "wordpressrahila@gmail.com";
+    writeJson(faqsFilePath, faqs);
+    if (!updatedFaq) updatedFaq = faqs[faqIndex];
+  } else if (updatedFaq) {
+    faqs.unshift(updatedFaq);
+    writeJson(faqsFilePath, faqs);
+  }
 
-  if (faqIndex === -1) {
+  if (!updatedFaq) {
     return res.status(404).json({ success: false, message: "FAQ not found." });
   }
 
-  faqs[faqIndex].answer = answer.trim();
-  faqs[faqIndex].status = "approved"; // Publish when answered
-  faqs[faqIndex].adminEmail = "wordpressrahila@gmail.com";
-  writeJson(faqsFilePath, faqs);
+  // 3. Send email notification to user who asked the question
+  const targetEmail = updatedFaq.email;
+  if (targetEmail) {
+    sendClientNotificationEmail({
+      toEmail: targetEmail,
+      recipientName: updatedFaq.author || updatedFaq.askedBy || "Community Member",
+      type: "FAQ Answer",
+      subject: `Rahila Kareem answered your question: "${updatedFaq.question.substring(0, 45)}..."`,
+      originalContent: updatedFaq.question,
+      replyContent: answer.trim()
+    }).catch(() => {});
 
-  if (isMongoConnected) {
-    try {
-      await FaqModel.findOneAndUpdate(
-        { id },
-        { answer: answer.trim(), status: "approved", adminEmail: "wordpressrahila@gmail.com" }
-      );
-    } catch (_) {}
+    sendWeb3FormsNotification({
+      subject: `[Admin Answered FAQ] "${updatedFaq.question.substring(0, 40)}"`,
+      fromName: "Admin Console",
+      fromEmail: "wordpressrahila@gmail.com",
+      details: {
+        questionAuthor: updatedFaq.author || updatedFaq.askedBy,
+        authorEmail: targetEmail,
+        question: updatedFaq.question,
+        adminAnswer: answer.trim(),
+        publishedLive: "Yes (Approved)",
+        timestamp: new Date().toISOString()
+      }
+    }).catch(() => {});
   }
 
   res.json({
     success: true,
-    message: "Answer published to FAQs successfully.",
-    faq: faqs[faqIndex]
+    message: "Answer published to live FAQs and user notification dispatched.",
+    faq: updatedFaq
   });
 });
 
