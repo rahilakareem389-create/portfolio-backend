@@ -178,6 +178,12 @@ function writeJson(filePath, data) {
 // ================================================================
 // MONGODB ATLAS INTEGRATION & SCHEMAS (SERVERLESS COMPATIBLE)
 // ================================================================
+// MONGODB ATLAS INTEGRATION & SCHEMAS (SERVERLESS COMPATIBLE)
+// ================================================================
+const MONGODB_URI =
+  process.env.MONGODB_URI ||
+  "mongodb+srv://admin:admin123@cluster0.v8jh8qe.mongodb.net/rahila_portfolio?retryWrites=true&w=majority";
+
 let isMongoConnected = false;
 let cachedMongoConn = null;
 let cachedMongoPromise = null;
@@ -187,14 +193,14 @@ async function connectToMongo() {
     isMongoConnected = true;
     return cachedMongoConn;
   }
-  const uri = process.env.MONGODB_URI;
+  const uri = MONGODB_URI;
   if (!uri) {
     return null;
   }
   if (!cachedMongoPromise) {
     cachedMongoPromise = mongoose
       .connect(uri, {
-        serverSelectionTimeoutMS: 20000,
+        serverSelectionTimeoutMS: 15000,
         socketTimeoutMS: 45000,
         maxPoolSize: 10
       })
@@ -216,15 +222,11 @@ async function connectToMongo() {
 }
 
 // Initial boot connection attempt
-if (process.env.MONGODB_URI) {
-  connectToMongo();
-} else {
-  console.log("No MONGODB_URI provided in environment. Operating with high-speed JSON store.");
-}
+connectToMongo();
 
 // Serverless middleware to ensure DB connection is active before processing API calls
 app.use(async (req, res, next) => {
-  if (process.env.MONGODB_URI && mongoose.connection.readyState !== 1) {
+  if (mongoose.connection.readyState !== 1) {
     try {
       await connectToMongo();
     } catch (_) {}
@@ -326,48 +328,68 @@ const ReviewModel = mongoose.models.Review || mongoose.model("Review", ReviewSch
 const FaqModel = mongoose.models.Faq || mongoose.model("Faq", FaqSchema);
 const VisitorAnalyticsModel = mongoose.models.VisitorAnalytics || mongoose.model("VisitorAnalytics", VisitorAnalyticsSchema);
 
-// Sync initial JSON files into MongoDB Atlas if connected and empty
+// Sync JSON files into MongoDB Atlas bidirectionally
 async function syncJsonToMongo() {
   if (!isMongoConnected) return;
   try {
-    const reviewCount = await ReviewModel.countDocuments();
-    if (reviewCount === 0) {
-      const initialReviews = readJson(reviewsFilePath, []);
-      if (initialReviews.length) await ReviewModel.insertMany(initialReviews);
+    const initialReviews = readJson(reviewsFilePath, []);
+    for (const rev of initialReviews) {
+      if (rev && rev.id) {
+        await ReviewModel.findOneAndUpdate({ id: rev.id }, { $set: rev }, { upsert: true }).catch(() => {});
+      }
     }
 
-    const faqCount = await FaqModel.countDocuments();
-    if (faqCount === 0) {
-      const initialFaqs = readJson(faqsFilePath, []);
-      if (initialFaqs.length) await FaqModel.insertMany(initialFaqs);
+    const initialFaqs = readJson(faqsFilePath, []);
+    for (const faq of initialFaqs) {
+      if (faq && faq.id) {
+        await FaqModel.findOneAndUpdate({ id: faq.id }, { $set: faq }, { upsert: true }).catch(() => {});
+      }
     }
 
-    const userCount = await UserLogModel.countDocuments();
-    if (userCount === 0) {
-      const initialUsers = readJson(usersFilePath, []);
-      if (initialUsers.length) await UserLogModel.insertMany(initialUsers);
+    const initialUsers = readJson(usersFilePath, []);
+    for (const usr of initialUsers) {
+      if (usr && usr.email) {
+        await UserLogModel.findOneAndUpdate(
+          { email: usr.email.trim().toLowerCase() },
+          {
+            $set: {
+              name: usr.name || "Client User",
+              email: usr.email.trim().toLowerCase(),
+              role: usr.role || "Client",
+              source: usr.source || "Website Engagement",
+              activity: usr.activity || "Active",
+              ip: usr.ip || "Client Workspace",
+              date: usr.date ? new Date(usr.date) : new Date()
+            },
+            $setOnInsert: { id: usr.id || `usr_${Date.now()}` }
+          },
+          { upsert: true }
+        ).catch(() => {});
+      }
     }
 
-    const msgCount = await ContactMessageModel.countDocuments();
-    if (msgCount === 0) {
-      const initialMsgs = readJson(messagesFilePath, []);
-      if (initialMsgs.length) await ContactMessageModel.insertMany(initialMsgs);
+    const initialMsgs = readJson(messagesFilePath, []);
+    for (const msg of initialMsgs) {
+      if (msg && msg.id) {
+        await ContactMessageModel.findOneAndUpdate({ id: msg.id }, { $set: msg }, { upsert: true }).catch(() => {});
+      }
     }
-    console.log("MongoDB collections synchronized.");
+    console.log("MongoDB collections fully synchronized with persistent storage.");
   } catch (err) {
     console.error("Sync to Mongo error:", err.message);
   }
 }
 
-// Track user activity helper
+// Track user activity helper (Guaranteed Mongo + JSON Persistence)
 async function recordUserActivity(name, email, role, activity, ip = "", userAgent = "") {
   if (!email) return;
   const now = new Date().toISOString();
   const userId = `usr_${Date.now()}`;
+  const cleanEmail = email.trim().toLowerCase();
 
   // Always keep JSON updated
   const users = readJson(usersFilePath, []);
-  const existingIndex = users.findIndex((u) => u.email.toLowerCase() === email.toLowerCase());
+  const existingIndex = users.findIndex((u) => u.email.toLowerCase() === cleanEmail);
 
   if (existingIndex !== -1) {
     const existing = users.splice(existingIndex, 1)[0];
@@ -380,7 +402,7 @@ async function recordUserActivity(name, email, role, activity, ip = "", userAgen
     users.unshift({
       id: userId,
       name: name || "Verified User",
-      email: email.trim(),
+      email: cleanEmail,
       role: role || "Client",
       source: "Website Engagement",
       activity: activity,
@@ -394,17 +416,21 @@ async function recordUserActivity(name, email, role, activity, ip = "", userAgen
   if (isMongoConnected) {
     try {
       await UserLogModel.findOneAndUpdate(
-        { email: email.trim().toLowerCase() },
+        { email: cleanEmail },
         {
-          id: userId,
-          name: name || "Verified User",
-          email: email.trim().toLowerCase(),
-          role: role || "Client",
-          source: "Website Engagement",
-          activity: activity,
-          ip: ip,
-          userAgent: userAgent,
-          date: new Date()
+          $set: {
+            name: name || "Verified User",
+            email: cleanEmail,
+            role: role || "Client",
+            source: "Website Engagement",
+            activity: activity,
+            ip: ip || "Client Workspace",
+            userAgent: userAgent || "",
+            date: new Date()
+          },
+          $setOnInsert: {
+            id: userId
+          }
         },
         { upsert: true, new: true }
       );
@@ -1197,50 +1223,52 @@ app.get("/api/admin/analytics", async (req, res) => {
 // Admin: Contact Messages Inbox ("kis n message kia")
 app.get("/api/admin/messages", async (req, res) => {
   try {
-    let messages = [];
-    if (isMongoConnected) {
-      messages = await ContactMessageModel.find().sort({ createdAt: -1 });
-    } else {
-      messages = readJson(messagesFilePath, []);
-    }
+    const defaultMessages = [
+      {
+        id: "msg_client_ayesha",
+        name: "Ayesha Noor",
+        email: "ayesha.noor@luxeboutique.pk",
+        phone: "+92 300 1234567",
+        plan: "WordPress & E-Commerce Store ($220)",
+        subject: "Inquiry: WordPress & E-Commerce Store",
+        message: "Hi Rahila, I am looking to redesign our WooCommerce store for Luxe Boutique with fast checkout and technical SEO optimization. Looking forward to discussing this project.",
+        status: "new",
+        adminNotes: "",
+        web3FormsStatus: "delivered",
+        date: new Date(Date.now() - 3600000 * 3).toISOString()
+      },
+      {
+        id: "msg_client_hamza",
+        name: "Hamza Rafiq",
+        email: "hamza.growth@venturetech.io",
+        phone: "+92 321 9876543",
+        plan: "Enterprise Backlinks & Monthly SEO ($350)",
+        subject: "Inquiry: Enterprise Backlinks",
+        message: "Looking for high authority guest posting and monthly backlink building for our SaaS application. Please share case studies and proposal.",
+        status: "replied",
+        adminNotes: "Sent proposal via WhatsApp & email.",
+        web3FormsStatus: "delivered",
+        date: new Date(Date.now() - 3600000 * 14).toISOString()
+      }
+    ];
 
-    if (!messages || messages.length === 0) {
-      const defaultMessages = [
-        {
-          id: "msg_client_ayesha",
-          name: "Ayesha Noor",
-          email: "ayesha.noor@luxeboutique.pk",
-          phone: "+92 300 1234567",
-          plan: "WordPress & E-Commerce Store ($220)",
-          subject: "Inquiry: WordPress & E-Commerce Store",
-          message: "Hi Rahila, I am looking to redesign our WooCommerce store for Luxe Boutique with fast checkout and technical SEO optimization. Looking forward to discussing this project.",
-          status: "new",
-          adminNotes: "",
-          web3FormsStatus: "delivered",
-          date: new Date(Date.now() - 3600000 * 3).toISOString()
-        },
-        {
-          id: "msg_client_hamza",
-          name: "Hamza Rafiq",
-          email: "hamza.growth@venturetech.io",
-          phone: "+92 321 9876543",
-          plan: "Enterprise Backlinks & Monthly SEO ($350)",
-          subject: "Inquiry: Enterprise Backlinks",
-          message: "Looking for high authority guest posting and monthly backlink building for our SaaS application. Please share case studies and proposal.",
-          status: "replied",
-          adminNotes: "Sent proposal via WhatsApp & email.",
-          web3FormsStatus: "delivered",
-          date: new Date(Date.now() - 3600000 * 14).toISOString()
-        }
-      ];
+    let mongoMessages = [];
+    if (isMongoConnected) {
+      try {
+        mongoMessages = await ContactMessageModel.find().sort({ createdAt: -1, date: -1 }).lean();
+      } catch (_) {}
+    }
+    const localMessages = readJson(messagesFilePath, []);
+    const messageMap = new Map();
+    localMessages.forEach((m) => { if (m && m.id) messageMap.set(m.id, m); });
+    mongoMessages.forEach((m) => { if (m && m.id) messageMap.set(m.id, m); });
+
+    let messages = Array.from(messageMap.values());
+    if (messages.length === 0) {
       messages = defaultMessages;
       writeJson(messagesFilePath, defaultMessages);
-      if (isMongoConnected) {
-        try {
-          await ContactMessageModel.insertMany(defaultMessages);
-        } catch (_) {}
-      }
     }
+    messages.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
 
     res.json({
       success: true,
@@ -1305,13 +1333,6 @@ app.delete("/api/admin/messages/:id", async (req, res) => {
 // Admin: User Logins Directory ("kon login huwa")
 app.get("/api/admin/users", async (req, res) => {
   try {
-    let users = [];
-    if (isMongoConnected) {
-      users = await UserLogModel.find().sort({ date: -1 });
-    } else {
-      users = readJson(usersFilePath, []);
-    }
-
     const defaultUsers = [
       {
         id: "usr_rahila_owner",
@@ -1355,21 +1376,39 @@ app.get("/api/admin/users", async (req, res) => {
       }
     ];
 
-    if (!users || users.length === 0) {
+    let mongoUsers = [];
+    if (isMongoConnected) {
+      try {
+        mongoUsers = await UserLogModel.find().sort({ date: -1, createdAt: -1 }).lean();
+      } catch (_) {}
+    }
+    const localUsers = readJson(usersFilePath, []);
+    const userMap = new Map();
+    localUsers.forEach((u) => { if (u && u.email) userMap.set(u.email.toLowerCase().trim(), u); });
+    mongoUsers.forEach((u) => { if (u && u.email) userMap.set(u.email.toLowerCase().trim(), u); });
+
+    let users = Array.from(userMap.values());
+    if (users.length === 0) {
       users = defaultUsers;
       writeJson(usersFilePath, defaultUsers);
-      if (isMongoConnected) {
-        try {
-          await UserLogModel.insertMany(defaultUsers);
-        } catch (_) {}
-      }
-    } else {
-      // Ensure the 2 Master Admins are ALWAYS guaranteed in the directory
-      const hasOwnerAdmin = users.some(u => (u.email || "").toLowerCase() === "rahilakareem389@gmail.com");
-      const hasSupportAdmin = users.some(u => (u.email || "").toLowerCase() === "wordpressrahila@gmail.com");
-      if (!hasSupportAdmin) users.unshift(defaultUsers[1]);
-      if (!hasOwnerAdmin) users.unshift(defaultUsers[0]);
     }
+
+    // Ensure the 2 Master Admins are ALWAYS guaranteed in the directory
+    const hasOwnerAdmin = users.some(u => (u.email || "").toLowerCase().trim() === "rahilakareem389@gmail.com");
+    const hasSupportAdmin = users.some(u => (u.email || "").toLowerCase().trim() === "wordpressrahila@gmail.com");
+    if (!hasSupportAdmin) users.unshift(defaultUsers[1]);
+    if (!hasOwnerAdmin) users.unshift(defaultUsers[0]);
+
+    // Sort newest first with master admins pinned to top
+    users.sort((a, b) => {
+      const aEmail = (a.email || "").toLowerCase().trim();
+      const bEmail = (b.email || "").toLowerCase().trim();
+      const aIsMaster = aEmail === "rahilakareem389@gmail.com" || aEmail === "wordpressrahila@gmail.com";
+      const bIsMaster = bEmail === "rahilakareem389@gmail.com" || bEmail === "wordpressrahila@gmail.com";
+      if (aIsMaster && !bIsMaster) return -1;
+      if (!aIsMaster && bIsMaster) return 1;
+      return new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0);
+    });
 
     res.json({
       success: true,
@@ -1416,12 +1455,19 @@ app.delete("/api/admin/users/:id", async (req, res) => {
 // Admin: Reviews Moderation & Reply ("admin bt kery ga user s reviews")
 app.get("/api/admin/reviews", async (req, res) => {
   try {
-    let reviews = [];
+    let mongoReviews = [];
     if (isMongoConnected) {
-      reviews = await ReviewModel.find().sort({ createdAt: -1 });
-    } else {
-      reviews = readJson(reviewsFilePath, []);
+      try {
+        mongoReviews = await ReviewModel.find().sort({ createdAt: -1, date: -1 }).lean();
+      } catch (_) {}
     }
+    const localReviews = readJson(reviewsFilePath, []);
+    const revMap = new Map();
+    localReviews.forEach((r) => { if (r && r.id) revMap.set(r.id, r); });
+    mongoReviews.forEach((r) => { if (r && r.id) revMap.set(r.id, r); });
+
+    let reviews = Array.from(revMap.values());
+    reviews.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
 
     res.json({
       success: true,
@@ -1576,12 +1622,19 @@ app.post("/api/admin/reviews", async (req, res) => {
 // Admin: FAQ Q&A Management ("admin bt kery ga user s faq ka")
 app.get("/api/admin/faqs", async (req, res) => {
   try {
-    let faqs = [];
+    let mongoFaqs = [];
     if (isMongoConnected) {
-      faqs = await FaqModel.find().sort({ createdAt: -1 });
-    } else {
-      faqs = readJson(faqsFilePath, []);
+      try {
+        mongoFaqs = await FaqModel.find().sort({ createdAt: -1, date: -1 }).lean();
+      } catch (_) {}
     }
+    const localFaqs = readJson(faqsFilePath, []);
+    const faqMap = new Map();
+    localFaqs.forEach((f) => { if (f && f.id) faqMap.set(f.id, f); });
+    mongoFaqs.forEach((f) => { if (f && f.id) faqMap.set(f.id, f); });
+
+    let faqs = Array.from(faqMap.values());
+    faqs.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
 
     res.json({
       success: true,
