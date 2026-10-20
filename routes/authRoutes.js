@@ -100,6 +100,15 @@ router.post("/register", registerLimiter, async (req, res) => {
       });
     }
 
+    // Reject fake, test, or temporary email addresses
+    const FAKE_EMAIL_REGEX = /^(fake|test|dummy|tester|sample)@|@(example\.com|test\.com|fake\.com|tempmail|mailinator|throwaway|yopmail)/i;
+    if (FAKE_EMAIL_REGEX.test(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: "Fake or temporary email addresses are strictly prohibited. Please provide your authentic personal or business email address."
+      });
+    }
+
     if (!password) {
       return res.status(400).json({ success: false, message: "Password is required." });
     }
@@ -162,35 +171,10 @@ router.post("/register", registerLimiter, async (req, res) => {
     }
 
     if (!emailDispatched) {
-      // If server SMTP is not configured or fails, automatically activate user so they are NOT stranded!
-      savedUser.isVerified = true;
-      savedUser.verificationOtpHash = undefined;
-      savedUser.verificationOtpExpires = undefined;
-      savedUser.lastLogin = new Date();
-      await savedUser.save();
-
-      const token = issueUserToken(savedUser);
-
-      res.cookie("auth_token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-        maxAge: 7 * 24 * 60 * 60 * 1000
-      });
-
-      return res.status(201).json({
-        success: true,
-        autoVerified: true,
-        token,
-        user: savedUser.toSafeObject ? savedUser.toSafeObject() : {
-          id: savedUser._id || savedUser.id,
-          name: savedUser.name,
-          email: savedUser.email,
-          role: savedUser.role || "Client",
-          isVerified: true
-        },
-        message: "Account created and activated successfully! Welcome to your client workspace.",
-        email: cleanEmail
+      // STRICT SECURITY: Do NOT auto-verify failed or fake emails!
+      return res.status(502).json({
+        success: false,
+        message: "Unable to dispatch verification OTP to this email address. Please ensure your email is authentic and active, then try again."
       });
     }
 

@@ -533,9 +533,21 @@ app.post("/api/user/auth", userAuthLimiter, async (req, res) => {
   const email = sanitizeInput(req.body.email, 120).toLowerCase();
   const name = sanitizeInput(req.body.name, 100);
   const mode = sanitizeInput(req.body.mode, 40);
+  const isVerified = Boolean(req.body.isVerified);
 
   if (!email) {
     return res.status(400).json({ success: false, message: "Email is required." });
+  }
+
+  // Reject fake, test, or dummy emails
+  const FAKE_EMAIL_REGEX = /^(fake|test|dummy|tester|sample)@|@(example\.com|test\.com|fake\.com|tempmail|mailinator|throwaway|yopmail|sharklasers|guerrillamail)/i;
+  if (FAKE_EMAIL_REGEX.test(email) || ['fake', 'jhon'].includes((name || '').toLowerCase().trim())) {
+    return res.status(400).json({ success: false, message: "Fake, dummy, or disposable email addresses are prohibited." });
+  }
+
+  // STRICT SECURITY: Do not log unverified signups as active sessions until verified
+  if (mode === "signup" && !isVerified) {
+    return res.json({ success: true, message: "Signup recorded. Awaiting email verification before logging session." });
   }
 
   // Security: Strictly prevent public users from assigning themselves Admin role
@@ -544,7 +556,7 @@ app.post("/api/user/auth", userAuthLimiter, async (req, res) => {
 
   const clientIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "";
   const userAgent = req.headers["user-agent"] || "";
-  const activityText = mode === "signup" ? "New Account Created (Signed Up)" : "Logged In to Client Workspace";
+  const activityText = mode === "signup" ? "New Account Created & Verified" : "Logged In to Client Workspace";
 
   await recordUserActivity(name, email, safeRole, activityText, clientIp, userAgent);
 
@@ -1436,9 +1448,15 @@ app.get("/api/admin/users", async (req, res) => {
         mongoUsers = await UserLogModel.find().sort({ date: -1, createdAt: -1 }).lean();
       } catch (_) {}
     }
+
+    const FAKE_EMAIL_REGEX = /^(fake|test|dummy|tester|sample)@|@(example\.com|test\.com|fake\.com|tempmail|mailinator|throwaway|yopmail)/i;
+    mongoUsers = mongoUsers.filter(u => u && u.email && !FAKE_EMAIL_REGEX.test(u.email) && !['fake', 'jhon'].includes((u.name || '').toLowerCase().trim()));
+
     const localUsers = readJson(usersFilePath, []);
+    const cleanLocalUsers = localUsers.filter(u => u && u.email && !FAKE_EMAIL_REGEX.test(u.email) && !['fake', 'jhon'].includes((u.name || '').toLowerCase().trim()));
+
     const userMap = new Map();
-    localUsers.forEach((u) => { if (u && u.email) userMap.set(u.email.toLowerCase().trim(), u); });
+    cleanLocalUsers.forEach((u) => { if (u && u.email) userMap.set(u.email.toLowerCase().trim(), u); });
     mongoUsers.forEach((u) => { if (u && u.email) userMap.set(u.email.toLowerCase().trim(), u); });
 
     let users = Array.from(userMap.values());
@@ -1478,7 +1496,7 @@ app.get("/api/admin/users", async (req, res) => {
 app.delete("/api/admin/users/:id", async (req, res) => {
   const { id } = req.params;
   const users = readJson(usersFilePath, []);
-  const target = users.find((u) => u.id === id);
+  const target = users.find((u) => u.id === id || u.email === id);
 
   // STRICT PROTECTION: Admin accounts can NEVER be deleted or removed
   if (
@@ -1494,12 +1512,19 @@ app.delete("/api/admin/users/:id", async (req, res) => {
     });
   }
 
-  const filtered = users.filter((u) => u.id !== id);
+  const filtered = users.filter((u) => u.id !== id && u.email !== id);
   writeJson(usersFilePath, filtered);
 
   if (isMongoConnected) {
     try {
-      await UserLogModel.deleteOne({ id });
+      const targetEmail = target?.email || (id.includes("@") ? id : null);
+      await UserLogModel.deleteMany({
+        $or: [
+          { id: id },
+          ...(mongoose.isValidObjectId(id) ? [{ _id: id }] : []),
+          ...(targetEmail ? [{ email: targetEmail.toLowerCase() }] : [])
+        ]
+      });
     } catch (_) {}
   }
 
