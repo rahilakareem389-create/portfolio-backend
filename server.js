@@ -152,6 +152,7 @@ const usersFilePath = path.join(dataDir, "users.json");
 const messagesFilePath = path.join(dataDir, "messages.json");
 const gmbFilePath = path.join(dataDir, "gmb.json");
 const analyticsFilePath = path.join(dataDir, "analytics.json");
+const announcementsFilePath = path.join(dataDir, "announcements.json");
 
 function readJson(filePath, defaultVal = []) {
   try {
@@ -319,6 +320,7 @@ const FaqSchema = new mongoose.Schema(
     answer: { type: String, default: "" },
     author: { type: String, default: "Community Member" },
     email: { type: String, default: "" },
+    portal: { type: String, default: "Islamic Learn" },
     date: { type: String, default: "Recently" },
     status: { type: String, default: "approved" },
     adminEmail: { type: String, default: "wordpressrahila@gmail.com" }
@@ -353,6 +355,28 @@ const ReviewModel = mongoose.models.Review || mongoose.model("Review", ReviewSch
 const FaqModel = mongoose.models.Faq || mongoose.model("Faq", FaqSchema);
 const VisitorAnalyticsModel = mongoose.models.VisitorAnalytics || mongoose.model("VisitorAnalytics", VisitorAnalyticsSchema);
 const DeletedRecordModel = mongoose.models.DeletedRecord || mongoose.model("DeletedRecord", DeletedRecordSchema);
+
+// 6. Islamic Announcement & Offer Schema ("new project ya offer lagy")
+const AnnouncementSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    title: { type: String, required: true },
+    shortDesc: { type: String, default: "" },
+    longDesc: { type: String, default: "" },
+    type: { type: String, default: "offer" }, // 'offer' | 'project' | 'announcement' | 'coming_soon'
+    badge: { type: String, default: "Special Offer" },
+    image: { type: String, default: "" },
+    duration: { type: String, default: "Flexible" },
+    ageGroup: { type: String, default: "All Ages" },
+    price: { type: String, default: "$15/month" },
+    schedule: { type: String, default: "Flexible" },
+    status: { type: String, default: "active" }, // 'active' | 'coming_soon' | 'paused'
+    ctaText: { type: String, default: "Enroll in Program" },
+    adminEmail: { type: String, default: "wordpressrahila@gmail.com" }
+  },
+  { timestamps: true }
+);
+const AnnouncementModel = mongoose.models.Announcement || mongoose.model("Announcement", AnnouncementSchema);
 
 // Sync JSON files into MongoDB Atlas bidirectionally (Strict: Excludes any deleted records)
 async function syncJsonToMongo() {
@@ -404,6 +428,22 @@ async function syncJsonToMongo() {
     for (const msg of initialMsgs) {
       if (msg && msg.id) {
         await ContactMessageModel.findOneAndUpdate({ id: msg.id }, { $set: msg }, { upsert: true }).catch(() => {});
+      }
+    }
+
+    let deletedAnnIds = new Set(["ann_ramadan_2026", "ann_kids_noorani"]);
+    try {
+      const deletedAnns = await DeletedRecordModel.find({ type: "announcement" }).lean();
+      deletedAnns.forEach((d) => deletedAnnIds.add(d.recordId));
+      if (deletedAnnIds.size > 0) {
+        await AnnouncementModel.deleteMany({ id: { $in: Array.from(deletedAnnIds) } }).catch(() => {});
+      }
+    } catch (_) {}
+
+    const initialAnnouncements = readJson(announcementsFilePath, []);
+    for (const ann of initialAnnouncements) {
+      if (ann && ann.id && !deletedAnnIds.has(ann.id)) {
+        await AnnouncementModel.findOneAndUpdate({ id: ann.id }, { $set: ann }, { upsert: true }).catch(() => {});
       }
     }
     console.log("MongoDB collections fully synchronized with persistent storage.");
@@ -1007,16 +1047,61 @@ app.post("/api/reviews", reviewLimiter, requireUserAuth, async (req, res) => {
 });
 
 // ================================================================
+// ISLAMIC ANNOUNCEMENTS, SPECIAL OFFERS & PROJECTS (PUBLIC)
+// ================================================================
+app.get("/api/announcements", async (req, res) => {
+  try {
+    let items = [];
+    if (isMongoConnected) {
+      items = await AnnouncementModel.find({
+        status: { $ne: "paused" },
+        id: { $nin: ["ann_ramadan_2026", "ann_kids_noorani"] }
+      }).sort({ createdAt: -1 });
+    }
+    if (!items || items.length === 0) {
+      const all = readJson(announcementsFilePath, []);
+      items = all.filter((a) => a.status !== "paused" && a.id !== "ann_ramadan_2026" && a.id !== "ann_kids_noorani");
+    }
+
+    res.json({
+      success: true,
+      total: items.length,
+      announcements: items
+    });
+  } catch (err) {
+    const fallback = readJson(announcementsFilePath, []).filter(
+      (a) => a.id !== "ann_ramadan_2026" && a.id !== "ann_kids_noorani"
+    );
+    res.json({ success: true, total: fallback.length, announcements: fallback });
+  }
+});
+
+// ================================================================
 // COMMUNITY FAQS (PUBLIC & QUESTION SUBMISSION) ("kis n eaq kia")
 // ================================================================
 app.get("/api/faqs", async (req, res) => {
   try {
+    const portal = req.query.portal;
+    let query = { status: "approved" };
+    if (portal === "islamic") {
+      query.$or = [
+        { portal: "Islamic Learn" },
+        { category: "Quran & Islamic Studies" }
+      ];
+    }
+
     let approvedFaqs = [];
     if (isMongoConnected) {
-      approvedFaqs = await FaqModel.find({ status: "approved" }).sort({ createdAt: -1 });
+      approvedFaqs = await FaqModel.find(query).sort({ createdAt: -1 });
     } else {
       const all = readJson(faqsFilePath, []);
-      approvedFaqs = all.filter((f) => f.status === "approved");
+      approvedFaqs = all.filter((f) => {
+        if (f.status !== "approved") return false;
+        if (portal === "islamic") {
+          return f.portal === "Islamic Learn" || f.category === "Quran & Islamic Studies";
+        }
+        return true;
+      });
     }
 
     res.json({
@@ -1034,6 +1119,7 @@ app.post("/api/faqs/ask", faqLimiter, requireUserAuth, async (req, res) => {
   const verifiedEmail = req.user?.email || sanitizeInput(req.body.email, 120).toLowerCase();
   const name = sanitizeInput(req.body.name, 100) || req.user?.name || "Visitor";
   const email = verifiedEmail;
+  const portal = sanitizeInput(req.body.portal, 60) || "Islamic Learn";
 
   if (!question || question.length < 5) {
     return res.status(400).json({
@@ -1049,6 +1135,7 @@ app.post("/api/faqs/ask", faqLimiter, requireUserAuth, async (req, res) => {
     answer: "",
     author: name || "Visitor",
     email: email || "",
+    portal: portal,
     date: "Just now",
     status: "pending", // Moderated: Must be answered/approved by Admin in Dashboard before appearing publicly
     adminEmail: PRIMARY_ADMIN_EMAIL
@@ -1066,14 +1153,15 @@ app.post("/api/faqs/ask", faqLimiter, requireUserAuth, async (req, res) => {
     }
   }
 
-  await recordUserActivity(name || "Visitor", email, "Question Asker", `Asked FAQ: "${question.substring(0, 40)}..."`);
+  await recordUserActivity(name || "Visitor", email, "Question Asker", `Asked FAQ (${portal}): "${question.substring(0, 40)}..."`);
 
   // Dispatch alert to wordpressrahila@gmail.com via Web3Forms ("kis n eaq kia")
   sendWeb3FormsNotification({
-    subject: `[New FAQ Question Asked] from ${newFaq.author}`,
+    subject: `[New FAQ Question - ${portal}] from ${newFaq.author}`,
     fromName: newFaq.author,
     fromEmail: newFaq.email || "wordpressrahila@gmail.com",
     details: {
+      portal: portal,
       author: newFaq.author,
       authorEmail: newFaq.email || "Not specified",
       question: newFaq.question,
@@ -1973,6 +2061,131 @@ app.post("/api/admin/faqs", async (req, res) => {
     message: "Official Q&A added and published live.",
     faq: newFaq
   });
+});
+
+// Admin: Manage Islamic Learn Announcements, Offers & Projects ("new project ya offer lagy")
+app.get("/api/admin/announcements", async (req, res) => {
+  try {
+    let mongoItems = [];
+    if (isMongoConnected) {
+      mongoItems = await AnnouncementModel.find({ id: { $nin: ["ann_ramadan_2026", "ann_kids_noorani"] } })
+        .sort({ createdAt: -1 })
+        .lean();
+    }
+    const localItems = readJson(announcementsFilePath, []).filter(
+      (a) => a.id !== "ann_ramadan_2026" && a.id !== "ann_kids_noorani"
+    );
+    const map = new Map();
+    localItems.forEach((item) => { if (item?.id) map.set(item.id, item); });
+    mongoItems.forEach((item) => { if (item?.id) map.set(item.id, item); });
+    const announcements = Array.from(map.values());
+    announcements.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+    res.json({
+      success: true,
+      total: announcements.length,
+      announcements
+    });
+  } catch (err) {
+    const local = readJson(announcementsFilePath, []).filter(
+      (a) => a.id !== "ann_ramadan_2026" && a.id !== "ann_kids_noorani"
+    );
+    res.json({ success: true, total: local.length, announcements: local });
+  }
+});
+
+app.post("/api/admin/announcements", async (req, res) => {
+  try {
+    const title = sanitizeInput(req.body.title, 200);
+    if (!title || title.length < 3) {
+      return res.status(400).json({ success: false, message: "Please provide a valid title (at least 3 characters)." });
+    }
+
+    const annId = `ann_${Date.now()}`;
+    const newAnn = {
+      id: annId,
+      title,
+      shortDesc: sanitizeInput(req.body.shortDesc, 500) || "",
+      longDesc: sanitizeInput(req.body.longDesc, 3000) || "",
+      type: sanitizeInput(req.body.type, 50) || "offer",
+      badge: sanitizeInput(req.body.badge, 80) || "Special Offer",
+      image: sanitizeInput(req.body.image, 500) || "/quran-roses-hero.jpg",
+      duration: sanitizeInput(req.body.duration, 100) || "Flexible",
+      ageGroup: sanitizeInput(req.body.ageGroup, 100) || "All Ages",
+      price: sanitizeInput(req.body.price, 100) || "$15/month",
+      schedule: sanitizeInput(req.body.schedule, 200) || "Flexible Slots",
+      status: sanitizeInput(req.body.status, 50) || "active",
+      ctaText: sanitizeInput(req.body.ctaText, 100) || "Enroll in Program",
+      adminEmail: PRIMARY_ADMIN_EMAIL,
+      createdAt: new Date().toISOString()
+    };
+
+    // 1. Save to local JSON
+    const all = readJson(announcementsFilePath, []);
+    all.unshift(newAnn);
+    writeJson(announcementsFilePath, all);
+
+    // 2. Save to MongoDB Atlas
+    if (isMongoConnected) {
+      try {
+        await AnnouncementModel.create(newAnn);
+      } catch (e) {
+        console.error("Mongo announcement create error:", e.message);
+      }
+    }
+
+    // 3. Web3Forms alert to wordpressrahila@gmail.com
+    sendWeb3FormsNotification({
+      subject: `[New Program / Offer Live] ${newAnn.title}`,
+      fromName: "Admin Console (Rahila Kareem)",
+      fromEmail: PRIMARY_ADMIN_EMAIL,
+      details: {
+        title: newAnn.title,
+        type: newAnn.type,
+        badge: newAnn.badge,
+        duration: newAnn.duration,
+        price: newAnn.price,
+        ageGroup: newAnn.ageGroup,
+        schedule: newAnn.schedule,
+        status: newAnn.status,
+        timestamp: new Date().toISOString()
+      }
+    }).catch(() => {});
+
+    res.status(201).json({
+      success: true,
+      message: "New program / offer published successfully and is now live onsite!",
+      announcement: newAnn
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Error creating announcement." });
+  }
+});
+
+app.delete("/api/admin/announcements/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const all = readJson(announcementsFilePath, []);
+    const filtered = all.filter((a) => a.id !== id);
+    writeJson(announcementsFilePath, filtered);
+
+    if (isMongoConnected) {
+      try {
+        await AnnouncementModel.deleteOne({ id });
+        await DeletedRecordModel.findOneAndUpdate(
+          { recordId: id, type: "announcement" },
+          { $set: { recordId: id, type: "announcement", date: new Date() } },
+          { upsert: true }
+        ).catch(() => {});
+      } catch (e) {
+        console.error("Mongo announcement delete error:", e.message);
+      }
+    }
+
+    res.json({ success: true, message: "Announcement removed from live website." });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Error deleting announcement." });
+  }
 });
 
 // Admin: GMB Profile Details
